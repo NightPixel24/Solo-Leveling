@@ -1,27 +1,30 @@
 package com.nightpixel.sololeveling.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,6 +35,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,8 +77,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private val COLUMN_WIDTH = 280.dp
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TasksScreen() {
@@ -84,177 +87,239 @@ fun TasksScreen() {
     val scope = rememberCoroutineScope()
 
     val lists by taskListDao.observeLists().collectAsState(initial = emptyList())
+    val pagerState = rememberPagerState(pageCount = { lists.size })
+    var pendingFocusListId by remember { mutableStateOf<Long?>(null) }
+    var showAddListDialog by remember { mutableStateOf(false) }
+    var showAddTaskDialog by remember { mutableStateOf(false) }
+
+    // A newly added list isn't in `lists` yet on the frame it's created, so
+    // park the target id and jump the pager to it once the Flow catches up.
+    LaunchedEffect(lists, pendingFocusListId) {
+        val targetId = pendingFocusListId ?: return@LaunchedEffect
+        val index = lists.indexOfFirst { it.id == targetId }
+        if (index >= 0) {
+            pagerState.scrollToPage(index)
+            pendingFocusListId = null
+        }
+    }
+
+    val currentList = lists.getOrNull(pagerState.currentPage)
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Tasks") }) }
-    ) { innerPadding ->
-        LazyRow(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(lists, key = { it.id }) { list ->
-                TaskListColumn(
-                    list = list,
-                    taskDao = taskDao,
-                    scope = scope,
-                    canDelete = lists.size > 1,
-                    onRename = { newName -> scope.launch { taskListDao.updateList(list.copy(name = newName)) } },
-                    onDelete = { scope.launch { taskListDao.deleteListCascading(list.id) } }
-                )
-            }
-            item {
-                AddListColumn(
-                    onAdd = { name ->
-                        scope.launch { taskListDao.insertList(TaskList(name = name, position = lists.size)) }
-                    }
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TaskListColumn(
-    list: TaskList,
-    taskDao: TaskDao,
-    scope: CoroutineScope,
-    canDelete: Boolean,
-    onRename: (String) -> Unit,
-    onDelete: () -> Unit
-) {
-    val tasks by taskDao.observeTasksForList(list.id).collectAsState(initial = emptyList())
-    var showAddTaskDialog by remember { mutableStateOf(false) }
-    var showMenu by remember { mutableStateOf(false) }
-    var showRenameDialog by remember { mutableStateOf(false) }
-
-    Surface(
-        modifier = Modifier.width(COLUMN_WIDTH).fillMaxHeight(),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Column(Modifier.padding(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    list.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    "${tasks.size}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "List options")
-                    }
-                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Rename") },
-                            onClick = { showMenu = false; showRenameDialog = true }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (canDelete) "Delete list" else "Can't delete last list") },
-                            enabled = canDelete,
-                            onClick = { showMenu = false; onDelete() }
-                        )
+        topBar = {
+            TopAppBar(
+                title = { Text("Tasks") },
+                actions = {
+                    IconButton(onClick = { showAddListDialog = true }) {
+                        Icon(Icons.Filled.Add, contentDescription = "Add list")
                     }
                 }
+            )
+        },
+        floatingActionButton = {
+            if (currentList != null) {
+                FloatingActionButton(onClick = { showAddTaskDialog = true }) {
+                    Icon(Icons.Filled.Add, contentDescription = "Add task")
+                }
             }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            TaskListTabRow(
+                lists = lists,
+                selectedIndex = pagerState.currentPage,
+                onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+                onRename = { list, newName -> scope.launch { taskListDao.updateList(list.copy(name = newName)) } },
+                onDelete = { list -> scope.launch { taskListDao.deleteListCascading(list.id) } },
+                canDelete = lists.size > 1
+            )
 
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
-            ) {
-                items(tasks, key = { it.task.id }) { taskWithSubtasks ->
-                    TaskCard(
-                        taskWithSubtasks = taskWithSubtasks,
-                        onToggleDone = {
-                            scope.launch {
-                                taskDao.updateTask(taskWithSubtasks.task.copy(isDone = !taskWithSubtasks.task.isDone))
-                            }
-                        },
-                        onDelete = { scope.launch { taskDao.deleteTask(taskWithSubtasks.task) } },
-                        onToggleSubtask = { subtask ->
-                            scope.launch { taskDao.updateSubtask(subtask.copy(isDone = !subtask.isDone)) }
-                        },
-                        onDeleteSubtask = { subtask -> scope.launch { taskDao.deleteSubtask(subtask) } },
-                        onAddSubtask = { title ->
-                            scope.launch {
-                                taskDao.insertSubtask(
-                                    Subtask(
-                                        taskId = taskWithSubtasks.task.id,
-                                        title = title,
-                                        position = taskWithSubtasks.subtasks.size
-                                    )
-                                )
-                            }
-                        }
+            if (lists.isEmpty()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No lists yet - tap + to add one",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                item {
-                    TextButton(onClick = { showAddTaskDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Add task")
-                    }
+            } else {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                ) { page ->
+                    TaskListContent(
+                        listId = lists[page].id,
+                        taskDao = taskDao,
+                        scope = scope,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }
     }
 
-    if (showAddTaskDialog) {
+    if (showAddListDialog) {
+        ListNameDialog(
+            initialName = "",
+            title = "New List",
+            onDismiss = { showAddListDialog = false },
+            onConfirm = { name ->
+                scope.launch { pendingFocusListId = taskListDao.insertList(TaskList(name = name, position = lists.size)) }
+                showAddListDialog = false
+            }
+        )
+    }
+
+    if (showAddTaskDialog && currentList != null) {
         AddTaskDialog(
             onDismiss = { showAddTaskDialog = false },
             onConfirm = { title, dueDate, priority, notes ->
                 scope.launch {
                     taskDao.insertTask(
-                        Task(listId = list.id, title = title, dueDate = dueDate, priority = priority, notes = notes)
+                        Task(listId = currentList.id, title = title, dueDate = dueDate, priority = priority, notes = notes)
                     )
                 }
                 showAddTaskDialog = false
             }
         )
     }
+}
 
-    if (showRenameDialog) {
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TaskListTabRow(
+    lists: List<TaskList>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onRename: (TaskList, String) -> Unit,
+    onDelete: (TaskList) -> Unit,
+    canDelete: Boolean
+) {
+    var menuTarget by remember { mutableStateOf<TaskList?>(null) }
+    var renameTarget by remember { mutableStateOf<TaskList?>(null) }
+    val tabRowState = rememberLazyListState()
+
+    LaunchedEffect(selectedIndex) {
+        if (selectedIndex >= 0) tabRowState.animateScrollToItem(selectedIndex)
+    }
+
+    LazyRow(
+        state = tabRowState,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        itemsIndexed(lists, key = { _, list -> list.id }) { index, list ->
+            val selected = index == selectedIndex
+            Box {
+                Surface(
+                    modifier = Modifier.combinedClickable(
+                        onClick = { onSelect(index) },
+                        onLongClick = { menuTarget = list }
+                    ),
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.surface
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    },
+                    contentColor = if (selected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                ) {
+                    Text(
+                        list.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuTarget?.id == list.id,
+                    onDismissRequest = { menuTarget = null }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        onClick = { menuTarget = null; renameTarget = list }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (canDelete) "Delete list" else "Can't delete last list") },
+                        enabled = canDelete,
+                        onClick = { menuTarget = null; onDelete(list) }
+                    )
+                }
+            }
+        }
+    }
+
+    renameTarget?.let { list ->
         ListNameDialog(
             initialName = list.name,
             title = "Rename List",
-            onDismiss = { showRenameDialog = false },
-            onConfirm = { newName -> onRename(newName); showRenameDialog = false }
+            onDismiss = { renameTarget = null },
+            onConfirm = { newName -> onRename(list, newName); renameTarget = null }
         )
     }
 }
 
 @Composable
-private fun AddListColumn(onAdd: (String) -> Unit) {
-    var showDialog by remember { mutableStateOf(false) }
+private fun TaskListContent(
+    listId: Long,
+    taskDao: TaskDao,
+    scope: CoroutineScope,
+    modifier: Modifier = Modifier
+) {
+    val tasks by taskDao.observeTasksForList(listId).collectAsState(initial = emptyList())
 
-    Surface(
-        modifier = Modifier.width(140.dp).fillMaxHeight(),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f),
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Box(Modifier.fillMaxSize().padding(top = 8.dp), contentAlignment = Alignment.TopCenter) {
-            TextButton(onClick = { showDialog = true }) {
-                Icon(Icons.Filled.Add, contentDescription = null)
-                Spacer(Modifier.width(4.dp))
-                Text("Add list")
+    if (tasks.isEmpty()) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Text(
+                "No tasks yet - tap + to add one",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    } else {
+        LazyColumn(
+            modifier = modifier,
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(tasks, key = { it.task.id }) { taskWithSubtasks ->
+                TaskCard(
+                    taskWithSubtasks = taskWithSubtasks,
+                    onToggleDone = {
+                        scope.launch {
+                            taskDao.updateTask(taskWithSubtasks.task.copy(isDone = !taskWithSubtasks.task.isDone))
+                        }
+                    },
+                    onDelete = { scope.launch { taskDao.deleteTask(taskWithSubtasks.task) } },
+                    onToggleSubtask = { subtask ->
+                        scope.launch { taskDao.updateSubtask(subtask.copy(isDone = !subtask.isDone)) }
+                    },
+                    onDeleteSubtask = { subtask -> scope.launch { taskDao.deleteSubtask(subtask) } },
+                    onAddSubtask = { title ->
+                        scope.launch {
+                            taskDao.insertSubtask(
+                                Subtask(
+                                    taskId = taskWithSubtasks.task.id,
+                                    title = title,
+                                    position = taskWithSubtasks.subtasks.size
+                                )
+                            )
+                        }
+                    }
+                )
             }
         }
-    }
-
-    if (showDialog) {
-        ListNameDialog(
-            initialName = "",
-            title = "New List",
-            onDismiss = { showDialog = false },
-            onConfirm = { name -> onAdd(name); showDialog = false }
-        )
     }
 }
 
