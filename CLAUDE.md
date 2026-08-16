@@ -5,14 +5,21 @@ Build order is spec Section 10; work through phases in order, testing (`./gradle
 
 ## Current phase
 
-**Phase 1 done** (project scaffold, nav shell, dark/blue/violet theme, minimal Room schema).
-Next up: **Phase 2** — Export/Backup scaffold (JSON write), per spec Section 10.
+**Phase 1 & 2 done**: project scaffold, nav shell, dark/blue/violet theme, minimal Room schema,
+and a working JSON Export/Import (Settings screen, reached via the gear icon on Dashboard's top
+bar). Export uses `ActivityResultContracts.CreateDocument`, import uses `OpenDocument` (SAF, so
+the user can save to Drive or local storage per spec Section 3). `BackupData` in
+`data/backup/BackupData.kt` is the one-field-per-table wrapper — add a field there and to
+`BackupManager` every time a new module adds a Room table.
+Next up: **Phase 3** — Tasks & Subtasks, per spec Section 10.
 
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
 - minSdk 26, targetSdk/compileSdk 35
 - AGP 8.7.2, Kotlin 2.0.21, Gradle 8.9 (wrapper), Room 2.6.1 via KSP (not kapt)
+- kotlinx.serialization (not manual `org.json`) for the backup JSON — scales better as more
+  entities get added across later phases
 - No Hilt/DI framework — manual instantiation via `SoloLevelingApplication` (single-user local app, kept deliberately simple)
 - No light theme — the System-window dark aesthetic is fixed, not a user toggle
 - Bottom nav screens are one file (`ui/screens/PlaceholderScreen.kt`) until each phase gives them real content
@@ -26,4 +33,6 @@ Next up: **Phase 2** — Export/Backup scaffold (JSON write), per spec Section 1
   the `dev-machine-jdk-tls-workaround` memory for why, before touching JDK/Gradle config here.
 - `./gradlew.bat assembleDebug` works standalone (no manual env vars) once `~/.gradle/gradle.properties`
   has `org.gradle.java.home` pointing at the JDK 17 above.
-- No device/emulator has been tested yet — `adb install -r` per spec Section 3 once one is available.
+- An AVD `SoloLeveling_Pixel6` (Pixel 6, API 35, x86_64) exists and is the standard way to test
+  changes on this machine: `./gradlew installDebug` builds+installs to whichever device/emulator
+  `adb` sees. Start it with `emulator -avd SoloLeveling_Pixel6` if it's not already running.
