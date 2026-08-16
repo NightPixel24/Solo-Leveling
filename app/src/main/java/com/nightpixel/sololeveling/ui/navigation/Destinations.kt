@@ -17,12 +17,12 @@ enum class BottomNavDestination(
     val label: String,
     val icon: ImageVector
 ) {
-    Dashboard("dashboard", "Dashboard", Icons.Filled.Shield),
+    Dashboard("dashboard", "Home", Icons.Filled.Shield),
     Calendar("calendar", "Calendar", Icons.Filled.CalendarMonth),
     Tasks("tasks", "Tasks", Icons.Filled.CheckCircle),
     Habits("habits", "Habits", Icons.Filled.Repeat),
     Gym("gym", "Gym", Icons.Filled.FitnessCenter),
-    Life("life", "Mood/Food/Water", Icons.Filled.Restaurant),
+    Life("life", "Life", Icons.Filled.Restaurant),
     Rewards("rewards", "Rewards", Icons.Filled.CardGiftcard)
 }
 

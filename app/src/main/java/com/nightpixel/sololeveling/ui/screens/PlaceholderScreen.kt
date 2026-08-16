@@ -45,7 +45,7 @@ fun HabitsScreen() = PlaceholderScreen("Habits")
 fun GymScreen() = PlaceholderScreen("Gym")
 
 @Composable
-fun LifeScreen() = PlaceholderScreen("Mood / Food / Water")
+fun LifeScreen() = PlaceholderScreen("Life (Mood / Food / Water)")
 
 @Composable
 fun RewardsScreen() = PlaceholderScreen("Rewards")

@@ -1,11 +1,15 @@
 package com.nightpixel.sololeveling.ui.components
 
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -32,7 +36,17 @@ fun SoloLevelingBottomNavBar(navController: NavHostController) {
                     }
                 },
                 icon = { Icon(destination.icon, contentDescription = destination.label) },
-                label = { Text(destination.label) }
+                label = {
+                    BasicText(
+                        text = destination.label,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(
+                            color = LocalContentColor.current,
+                            fontSize = MaterialTheme.typography.labelSmall.fontSize
+                        )
+                    )
+                }
             )
         }
     }
