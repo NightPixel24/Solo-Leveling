@@ -1,5 +1,6 @@
 package com.nightpixel.sololeveling.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -146,11 +149,18 @@ private fun TaskCard(
     onAddSubtask: (String) -> Unit
 ) {
     val task = taskWithSubtasks.task
+    val subtasks = taskWithSubtasks.subtasks
+    var expanded by remember(task.id) { mutableStateOf(false) }
+
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = task.isDone, onCheckedChange = { onToggleDone() })
-                Column(Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { expanded = !expanded }
+                ) {
                     Text(
                         text = task.title,
                         style = MaterialTheme.typography.titleMedium,
@@ -168,6 +178,13 @@ private fun TaskCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        if (subtasks.isNotEmpty()) {
+                            Text(
+                                "${subtasks.count { it.isDone }}/${subtasks.size} subtasks",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     if (task.notes.isNotBlank()) {
                         Text(
@@ -179,30 +196,38 @@ private fun TaskCard(
                         )
                     }
                 }
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (expanded) "Hide subtasks" else "Show subtasks"
+                    )
+                }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Filled.Delete, contentDescription = "Delete task")
                 }
             }
 
-            Column(Modifier.padding(start = 40.dp)) {
-                taskWithSubtasks.subtasks.sortedBy { it.position }.forEach { subtask ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = subtask.isDone,
-                            onCheckedChange = { onToggleSubtask(subtask) }
-                        )
-                        Text(
-                            subtask.title,
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyMedium,
-                            textDecoration = if (subtask.isDone) TextDecoration.LineThrough else null
-                        )
-                        IconButton(onClick = { onDeleteSubtask(subtask) }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Delete subtask")
+            if (expanded) {
+                Column(Modifier.padding(start = 40.dp)) {
+                    subtasks.sortedBy { it.position }.forEach { subtask ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = subtask.isDone,
+                                onCheckedChange = { onToggleSubtask(subtask) }
+                            )
+                            Text(
+                                subtask.title,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                textDecoration = if (subtask.isDone) TextDecoration.LineThrough else null
+                            )
+                            IconButton(onClick = { onDeleteSubtask(subtask) }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Delete subtask")
+                            }
                         }
                     }
+                    AddSubtaskRow(onAdd = onAddSubtask)
                 }
-                AddSubtaskRow(onAdd = onAddSubtask)
             }
         }
     }
