@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!--
+       Room DB backups are handled via the app's own JSON Export/Import (see spec Section 3),
+       not Android Auto Backup, since a raw SQLite file backup could restore mid-write.
+    -->
+    <exclude domain="database" path="." />
+</full-backup-content>

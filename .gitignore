@@ -1,0 +1,25 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Keystore (never commit signing keys)
+*.jks
+*.keystore
+keystore.properties
+
+# Log/backups
+*.log
+/backups/
+
+# Gradle wrapper jar is tracked; but local wrapper caches are not
+!gradle/wrapper/gradle-wrapper.jar
