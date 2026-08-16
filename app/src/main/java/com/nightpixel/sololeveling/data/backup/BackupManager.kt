@@ -2,8 +2,10 @@ package com.nightpixel.sololeveling.data.backup
 
 import android.content.Context
 import android.net.Uri
+import androidx.room.withTransaction
 import com.nightpixel.sololeveling.data.AppDatabase
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.TaskList
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.json.Json
 import java.time.Instant
@@ -22,6 +24,7 @@ class BackupManager(private val database: AppDatabase) {
             schemaVersion = AppDatabase.CURRENT_SCHEMA_VERSION,
             exportedAt = Instant.now().toString(),
             appMeta = database.appMetaDao().observe().firstOrNull(),
+            taskLists = database.taskListDao().getAllListsOnce(),
             tasks = database.taskDao().getAllTasksOnce(),
             subtasks = database.taskDao().getAllSubtasksOnce()
         )
@@ -37,8 +40,15 @@ class BackupManager(private val database: AppDatabase) {
         } ?: error("Could not open $uri for reading")
 
         val backup = backupJson.decodeFromString(BackupData.serializer(), json)
-        backup.appMeta?.let { database.appMetaDao().upsert(it) }
-            ?: database.appMetaDao().upsert(AppMeta(schemaVersion = backup.schemaVersion))
-        database.taskDao().replaceAll(backup.tasks, backup.subtasks)
+        database.withTransaction {
+            backup.appMeta?.let { database.appMetaDao().upsert(it) }
+                ?: database.appMetaDao().upsert(AppMeta(schemaVersion = backup.schemaVersion))
+
+            database.taskListDao().clearLists()
+            database.taskListDao().insertLists(
+                backup.taskLists.ifEmpty { listOf(TaskList(id = TaskList.DEFAULT_ID, name = "Tasks")) }
+            )
+            database.taskDao().replaceAll(backup.tasks, backup.subtasks)
+        }
     }
 }

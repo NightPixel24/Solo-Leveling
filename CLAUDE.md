@@ -15,6 +15,12 @@ the user can save to Drive or local storage per spec Section 3). `BackupData` in
 nested subtask checklist per task, all backed by `Task`/`Subtask` Room entities (schema v2,
 `AppDatabase.MIGRATION_1_2`) and wired into the Phase 2 backup. Verified on-device including the
 real v1→v2 migration path (app was already installed before the schema change landed).
+Tasks screen is a horizontally-scrollable board (`TaskList` entity, schema v3,
+`AppDatabase.MIGRATION_2_3`) - each named list is its own column with its own task feed, plus a
+trailing "+ Add list" column. `Task.listId` has no DB-level foreign key (would need a full table
+rebuild in SQLite just to add one) - list deletion cascades to its tasks via
+`TaskListDao.deleteListCascading` instead, called from app code. A default "Tasks" list is seeded
+both by the migration (existing installs) and `RoomDatabase.Callback.onCreate` (fresh installs).
 Next up: **Phase 4** — Habit Tracker, per spec Section 10.
 
 ## Locked-in decisions

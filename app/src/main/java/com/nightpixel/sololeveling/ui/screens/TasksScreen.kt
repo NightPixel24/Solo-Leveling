@@ -6,10 +6,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -17,15 +21,17 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,17 +57,22 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.entity.Priority
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
+import com.nightpixel.sololeveling.data.entity.TaskList
 import com.nightpixel.sololeveling.data.entity.TaskWithSubtasks
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+
+private val COLUMN_WIDTH = 280.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,34 +80,94 @@ fun TasksScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val taskDao = remember { app.database.taskDao() }
+    val taskListDao = remember { app.database.taskListDao() }
     val scope = rememberCoroutineScope()
 
-    val tasks by taskDao.observeTasksWithSubtasks().collectAsState(initial = emptyList())
-    var showAddDialog by remember { mutableStateOf(false) }
+    val lists by taskListDao.observeLists().collectAsState(initial = emptyList())
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Tasks") }) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Add task")
-            }
-        }
+        topBar = { TopAppBar(title = { Text("Tasks") }) }
     ) { innerPadding ->
-        if (tasks.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "No tasks yet - tap + to add one",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        LazyRow(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(lists, key = { it.id }) { list ->
+                TaskListColumn(
+                    list = list,
+                    taskDao = taskDao,
+                    scope = scope,
+                    canDelete = lists.size > 1,
+                    onRename = { newName -> scope.launch { taskListDao.updateList(list.copy(name = newName)) } },
+                    onDelete = { scope.launch { taskListDao.deleteListCascading(list.id) } }
                 )
             }
-        } else {
+            item {
+                AddListColumn(
+                    onAdd = { name ->
+                        scope.launch { taskListDao.insertList(TaskList(name = name, position = lists.size)) }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskListColumn(
+    list: TaskList,
+    taskDao: TaskDao,
+    scope: CoroutineScope,
+    canDelete: Boolean,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit
+) {
+    val tasks by taskDao.observeTasksForList(list.id).collectAsState(initial = emptyList())
+    var showAddTaskDialog by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier.width(COLUMN_WIDTH).fillMaxHeight(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    list.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "${tasks.size}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "List options")
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Rename") },
+                            onClick = { showMenu = false; showRenameDialog = true }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (canDelete) "Delete list" else "Can't delete last list") },
+                            enabled = canDelete,
+                            onClick = { showMenu = false; onDelete() }
+                        )
+                    }
+                }
+            }
+
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
             ) {
                 items(tasks, key = { it.task.id }) { taskWithSubtasks ->
                     TaskCard(
@@ -124,19 +195,97 @@ fun TasksScreen() {
                         }
                     )
                 }
+                item {
+                    TextButton(onClick = { showAddTaskDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add task")
+                    }
+                }
             }
         }
     }
 
-    if (showAddDialog) {
+    if (showAddTaskDialog) {
         AddTaskDialog(
-            onDismiss = { showAddDialog = false },
+            onDismiss = { showAddTaskDialog = false },
             onConfirm = { title, dueDate, priority, notes ->
-                scope.launch { taskDao.insertTask(Task(title = title, dueDate = dueDate, priority = priority, notes = notes)) }
-                showAddDialog = false
+                scope.launch {
+                    taskDao.insertTask(
+                        Task(listId = list.id, title = title, dueDate = dueDate, priority = priority, notes = notes)
+                    )
+                }
+                showAddTaskDialog = false
             }
         )
     }
+
+    if (showRenameDialog) {
+        ListNameDialog(
+            initialName = list.name,
+            title = "Rename List",
+            onDismiss = { showRenameDialog = false },
+            onConfirm = { newName -> onRename(newName); showRenameDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun AddListColumn(onAdd: (String) -> Unit) {
+    var showDialog by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier.width(140.dp).fillMaxHeight(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Box(Modifier.fillMaxSize().padding(top = 8.dp), contentAlignment = Alignment.TopCenter) {
+            TextButton(onClick = { showDialog = true }) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text("Add list")
+            }
+        }
+    }
+
+    if (showDialog) {
+        ListNameDialog(
+            initialName = "",
+            title = "New List",
+            onDismiss = { showDialog = false },
+            onConfirm = { name -> onAdd(name); showDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun ListNameDialog(
+    initialName: String,
+    title: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("List name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
+                enabled = name.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

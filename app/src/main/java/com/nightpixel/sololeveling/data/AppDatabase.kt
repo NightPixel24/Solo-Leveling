@@ -9,9 +9,11 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nightpixel.sololeveling.data.dao.AppMetaDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
+import com.nightpixel.sololeveling.data.dao.TaskListDao
 import com.nightpixel.sololeveling.data.entity.AppMeta
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
+import com.nightpixel.sololeveling.data.entity.TaskList
 
 /**
  * Every schema change here must ship with an explicit Room Migration
@@ -19,18 +21,23 @@ import com.nightpixel.sololeveling.data.entity.Task
  * this is a single-device local DB with no server backup.
  */
 @Database(
-    entities = [AppMeta::class, Task::class, Subtask::class],
-    version = 2,
+    entities = [AppMeta::class, Task::class, Subtask::class, TaskList::class],
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun appMetaDao(): AppMetaDao
     abstract fun taskDao(): TaskDao
+    abstract fun taskListDao(): TaskListDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 2
+        const val CURRENT_SCHEMA_VERSION = 3
         private const val DB_NAME = "solo_leveling.db"
+
+        private fun seedDefaultListSql(): String =
+            "INSERT INTO task_lists (id, name, position, createdAt) " +
+                "VALUES (${TaskList.DEFAULT_ID}, 'Tasks', 0, ${System.currentTimeMillis()})"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -63,6 +70,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS task_lists (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        position INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(seedDefaultListSql())
+                db.execSQL("ALTER TABLE tasks ADD COLUMN listId INTEGER NOT NULL DEFAULT ${TaskList.DEFAULT_ID}")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_tasks_listId ON tasks(listId)")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -72,7 +97,17 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     DB_NAME
-                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addCallback(object : RoomDatabase.Callback() {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            super.onCreate(db)
+                            // Fresh installs skip MIGRATION_2_3, so seed here instead.
+                            db.execSQL(seedDefaultListSql())
+                        }
+                    })
+                    .build()
+                    .also { instance = it }
             }
     }
 }

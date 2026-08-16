@@ -15,8 +15,11 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TaskDao {
     @Transaction
-    @Query("SELECT * FROM tasks ORDER BY isDone ASC, (dueDate IS NULL) ASC, dueDate ASC, createdAt DESC")
-    fun observeTasksWithSubtasks(): Flow<List<TaskWithSubtasks>>
+    @Query(
+        "SELECT * FROM tasks WHERE listId = :listId " +
+            "ORDER BY isDone ASC, (dueDate IS NULL) ASC, dueDate ASC, createdAt DESC"
+    )
+    fun observeTasksForList(listId: Long): Flow<List<TaskWithSubtasks>>
 
     @Insert
     suspend fun insertTask(task: Task): Long
