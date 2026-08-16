@@ -21,7 +21,9 @@ class BackupManager(private val database: AppDatabase) {
         val backup = BackupData(
             schemaVersion = AppDatabase.CURRENT_SCHEMA_VERSION,
             exportedAt = Instant.now().toString(),
-            appMeta = database.appMetaDao().observe().firstOrNull()
+            appMeta = database.appMetaDao().observe().firstOrNull(),
+            tasks = database.taskDao().getAllTasksOnce(),
+            subtasks = database.taskDao().getAllSubtasksOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -37,5 +39,6 @@ class BackupManager(private val database: AppDatabase) {
         val backup = backupJson.decodeFromString(BackupData.serializer(), json)
         backup.appMeta?.let { database.appMetaDao().upsert(it) }
             ?: database.appMetaDao().upsert(AppMeta(schemaVersion = backup.schemaVersion))
+        database.taskDao().replaceAll(backup.tasks, backup.subtasks)
     }
 }

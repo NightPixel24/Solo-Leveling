@@ -11,7 +11,11 @@ bar). Export uses `ActivityResultContracts.CreateDocument`, import uses `OpenDoc
 the user can save to Drive or local storage per spec Section 3). `BackupData` in
 `data/backup/BackupData.kt` is the one-field-per-table wrapper — add a field there and to
 `BackupManager` every time a new module adds a Room table.
-Next up: **Phase 3** — Tasks & Subtasks, per spec Section 10.
+**Phase 3 done**: Tasks & Subtasks (`ui/screens/TasksScreen.kt`) — title/due date/priority/notes,
+nested subtask checklist per task, all backed by `Task`/`Subtask` Room entities (schema v2,
+`AppDatabase.MIGRATION_1_2`) and wired into the Phase 2 backup. Verified on-device including the
+real v1→v2 migration path (app was already installed before the schema change landed).
+Next up: **Phase 4** — Habit Tracker, per spec Section 10.
 
 ## Locked-in decisions
 
