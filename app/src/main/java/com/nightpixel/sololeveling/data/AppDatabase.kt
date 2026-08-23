@@ -8,10 +8,13 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nightpixel.sololeveling.data.dao.AppMetaDao
+import com.nightpixel.sololeveling.data.dao.GymDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.Exercise
+import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.Subtask
@@ -24,8 +27,11 @@ import com.nightpixel.sololeveling.data.entity.TaskList
  * this is a single-device local DB with no server backup.
  */
 @Database(
-    entities = [AppMeta::class, Task::class, Subtask::class, TaskList::class, Habit::class, HabitLog::class],
-    version = 4,
+    entities = [
+        AppMeta::class, Task::class, Subtask::class, TaskList::class,
+        Habit::class, HabitLog::class, Exercise::class, GymSession::class
+    ],
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -34,9 +40,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun taskListDao(): TaskListDao
     abstract fun habitDao(): HabitDao
+    abstract fun gymDao(): GymDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 4
+        const val CURRENT_SCHEMA_VERSION = 5
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
@@ -124,6 +131,44 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS exercises (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        dayOfWeek INTEGER NOT NULL,
+                        type TEXT NOT NULL,
+                        targetSets INTEGER,
+                        targetReps INTEGER,
+                        targetWeight REAL,
+                        targetDuration INTEGER,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS gym_sessions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        exerciseId INTEGER NOT NULL,
+                        date TEXT NOT NULL,
+                        actualSets INTEGER,
+                        actualReps INTEGER,
+                        actualWeight REAL,
+                        actualDuration INTEGER,
+                        intensity INTEGER,
+                        FOREIGN KEY(exerciseId) REFERENCES exercises(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_gym_sessions_exerciseId_date ON gym_sessions(exerciseId, date)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -134,7 +179,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

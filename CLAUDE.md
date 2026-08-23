@@ -34,7 +34,19 @@ unlike the `Task`→`TaskList` retrofit). Streak-freeze (spec Section 5.4) is NO
 it needs the Quest/weekly-review infrastructure from Phase 12, so today's streak calc is a plain
 "consecutive days/weeks" count with no freeze exemption. `reminderTime` is captured (Material3
 `TimePicker`) but not scheduled — actual notifications are Phase 16.
-Next up: **Phase 5** — Gym Tracker, per spec Section 10.
+**Phase 5 done**: Gym Tracker (`ui/screens/GymScreen.kt`) — a weekly routine of exercises each
+pinned to a day of week (Mon-Sun), grouped under day headers (only days with exercises shown).
+Each exercise is Strength (sets/reps/weight target, feeds STR) or Cardio/Sport (duration target,
+feeds AGILITY) via `ExerciseType`; checking a scheduled exercise opens a log dialog prefilled with
+its targets, capturing actuals into a `GymSession` row for that date. Backed by `Exercise`/
+`GymSession` (schema v5, `AppDatabase.MIGRATION_4_5`), `GymSession` has a real FK+cascade to
+`Exercise` (both new tables). `Exercise.dayOfWeek` is stored as a plain Int (1=Mon..7=Sun,
+`java.time.DayOfWeek.value`) rather than the enum type itself, avoiding a TypeConverter/serializer
+for something that's just a day number. PR tracking / Boss Fights (spec Section 5.5) and the
+STR/AGILITY/DISCIPLINE XP grants are still Phase 10/12 — this phase is purely the routine +
+logging mechanism.
+Next up: **Phase 6** — Google Calendar integration (OAuth, read + create events), per spec
+Section 10.
 
 ## Locked-in decisions
 

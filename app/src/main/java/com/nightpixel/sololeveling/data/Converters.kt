@@ -1,6 +1,7 @@
 package com.nightpixel.sololeveling.data
 
 import androidx.room.TypeConverter
+import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.Priority
 import com.nightpixel.sololeveling.data.entity.StatTag
@@ -23,4 +24,10 @@ class Converters {
 
     @TypeConverter
     fun toStatTag(value: String): StatTag = StatTag.valueOf(value)
+
+    @TypeConverter
+    fun fromExerciseType(type: ExerciseType): String = type.name
+
+    @TypeConverter
+    fun toExerciseType(value: String): ExerciseType = ExerciseType.valueOf(value)
 }
