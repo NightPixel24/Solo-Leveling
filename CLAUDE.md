@@ -24,7 +24,17 @@ selection follows). Long-press a tab for rename/delete. `Task.listId` has no DB-
 via `TaskListDao.deleteListCascading` instead, called from app code. A default "Tasks" list is
 seeded both by the migration (existing installs) and `RoomDatabase.Callback.onCreate` (fresh
 installs).
-Next up: **Phase 4** — Habit Tracker, per spec Section 10.
+**Phase 4 done**: Habit Tracker (`ui/screens/HabitsScreen.kt`) — habits tagged Daily or Weekly,
+each tagged with a `StatTag` (STR/VIT/DISCIPLINE/INT/AGILITY, spec Section 5.1's stat set —
+gamification XP wiring itself is still Phase 10). One "did it today" checkbox per habit; daily
+habits show a streak count, weekly habits show "X/Y this week" toward `targetPerWeek` plus a
+streak once a week's target is met. Backed by `Habit`/`HabitLog` (schema v4,
+`AppDatabase.MIGRATION_3_4`), `HabitLog` has a real FK+cascade to `Habit` (both tables are new,
+unlike the `Task`→`TaskList` retrofit). Streak-freeze (spec Section 5.4) is NOT implemented yet —
+it needs the Quest/weekly-review infrastructure from Phase 12, so today's streak calc is a plain
+"consecutive days/weeks" count with no freeze exemption. `reminderTime` is captured (Material3
+`TimePicker`) but not scheduled — actual notifications are Phase 16.
+Next up: **Phase 5** — Gym Tracker, per spec Section 10.
 
 ## Locked-in decisions
 

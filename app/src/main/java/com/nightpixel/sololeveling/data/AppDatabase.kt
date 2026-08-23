@@ -8,9 +8,12 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nightpixel.sololeveling.data.dao.AppMetaDao
+import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.Habit
+import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.TaskList
@@ -21,8 +24,8 @@ import com.nightpixel.sololeveling.data.entity.TaskList
  * this is a single-device local DB with no server backup.
  */
 @Database(
-    entities = [AppMeta::class, Task::class, Subtask::class, TaskList::class],
-    version = 3,
+    entities = [AppMeta::class, Task::class, Subtask::class, TaskList::class, Habit::class, HabitLog::class],
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -30,9 +33,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun appMetaDao(): AppMetaDao
     abstract fun taskDao(): TaskDao
     abstract fun taskListDao(): TaskListDao
+    abstract fun habitDao(): HabitDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 3
+        const val CURRENT_SCHEMA_VERSION = 4
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
@@ -88,6 +92,38 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS habits (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        title TEXT NOT NULL,
+                        frequency TEXT NOT NULL,
+                        targetPerWeek INTEGER NOT NULL,
+                        statTag TEXT NOT NULL,
+                        reminderTime INTEGER,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS habit_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        habitId INTEGER NOT NULL,
+                        date TEXT NOT NULL,
+                        done INTEGER NOT NULL,
+                        FOREIGN KEY(habitId) REFERENCES habits(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_habit_logs_habitId_date ON habit_logs(habitId, date)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -98,7 +134,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
