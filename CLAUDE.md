@@ -89,7 +89,28 @@ blank cells, not trailing ones, so a Row with fewer than 7 weighted children gav
 (e.g. day 31 in a 31-day month starting mid-week) the *entire* row's width via `weight(1f)` instead
 of 1/7 of it, rendering as a giant oversized box. Fix: pad the cell list to a multiple of 7 on both
 ends before chunking into week rows.
-Next up: **Phase 8** — Food & Water Tracker (camera capture, bottle checklist), per spec Section 10.
+**Phase 8 done**: Food & Water Tracker. `ui/screens/LifeScreen.kt`'s Food and Water tabs are now
+real (`FoodScreen()`/`WaterScreen()`, replacing the `PlaceholderContent` stand-ins from Phase 7).
+Food: a camera FAB launches the system camera via `ActivityResultContracts.TakePicture()` against a
+`FileProvider`-issued `content://` URI (`res/xml/file_paths.xml`, `AndroidManifest.xml` provider
+entry) - a plain intent to the system camera app rather than an in-app CameraX preview, since spec
+Section 2 allows either and this keeps the dependency footprint down; on capture, a confirm dialog
+(Coil `AsyncImage` preview + description field) saves a `FoodLogEntry` row, and the list groups
+entries by day (Today/Yesterday/date) newest-first. Water: a per-day `WaterLog` row (`date` as PK,
+like `MoodEntry`) seeded on first view of a new day using the *previous* day's goal as the default
+(`WaterDao.getLatestGoal()`) so the target doesn't silently reset; tapping a bottle icon in a
+`FlowRow` sets the fill level directly (tap bottle N to fill up to N, or drain back to N-1 if
+already filled) rather than a simple increment/decrement, and a settings icon opens a stepper
+dialog to change the daily goal. Coil (`io.coil-kt:coil-compose:2.7.0`) was added as a dependency
+for async thumbnail/preview loading rather than hand-rolling Bitmap decoding. Backed by
+`FoodLogEntry`/`WaterLog` (schema v8, `AppDatabase.MIGRATION_7_8`), both new tables with no FK
+needs (food entries are independent rows; water is one row per day). No bugs found this phase.
+Verified on-device (`SoloLeveling_Pixel6` emulator): v7->v8 migration ran clean on launch; Water tab
+- tapped bottle 3 of 8, progress bar and "3/8 bottles" text updated correctly; Food tab - captured a
+real photo via the emulator's camera app, confirm dialog showed the photo and saved with a
+description, entry appeared correctly under a "Today" header with thumbnail/description/timestamp;
+final `adb logcat` sweep across the whole session showed no crashes.
+Next up: **Phase 9** — Life Goals module (tiers, status tracking), per spec Section 10.
 
 ## Locked-in decisions
 

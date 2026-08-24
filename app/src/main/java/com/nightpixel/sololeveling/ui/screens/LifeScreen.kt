@@ -82,8 +82,8 @@ fun LifeScreen() {
         Box(Modifier.fillMaxSize().padding(innerPadding)) {
             when (tab) {
                 LifeTab.MOOD -> MoodScreen()
-                LifeTab.FOOD -> PlaceholderContent("Food")
-                LifeTab.WATER -> PlaceholderContent("Water")
+                LifeTab.FOOD -> FoodScreen()
+                LifeTab.WATER -> WaterScreen()
             }
         }
     }

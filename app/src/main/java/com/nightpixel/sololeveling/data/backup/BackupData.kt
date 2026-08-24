@@ -3,6 +3,7 @@ package com.nightpixel.sololeveling.data.backup
 import com.nightpixel.sololeveling.data.entity.AppMeta
 import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
+import com.nightpixel.sololeveling.data.entity.FoodLogEntry
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
@@ -10,6 +11,7 @@ import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.TaskList
+import com.nightpixel.sololeveling.data.entity.WaterLog
 import kotlinx.serialization.Serializable
 
 /**
@@ -30,5 +32,7 @@ data class BackupData(
     val exercises: List<Exercise> = emptyList(),
     val gymSessions: List<GymSession> = emptyList(),
     val calendarEvents: List<CalendarEventCache> = emptyList(),
-    val moodEntries: List<MoodEntry> = emptyList()
+    val moodEntries: List<MoodEntry> = emptyList(),
+    val foodLogEntries: List<FoodLogEntry> = emptyList(),
+    val waterLogs: List<WaterLog> = emptyList()
 )

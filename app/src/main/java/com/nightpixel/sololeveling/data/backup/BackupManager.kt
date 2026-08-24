@@ -32,7 +32,9 @@ class BackupManager(private val database: AppDatabase) {
             exercises = database.gymDao().getAllExercisesOnce(),
             gymSessions = database.gymDao().getAllSessionsOnce(),
             calendarEvents = database.calendarDao().getAllEventsOnce(),
-            moodEntries = database.moodDao().getAllOnce()
+            moodEntries = database.moodDao().getAllOnce(),
+            foodLogEntries = database.foodDao().getAllOnce(),
+            waterLogs = database.waterDao().getAllOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -59,6 +61,8 @@ class BackupManager(private val database: AppDatabase) {
             database.gymDao().replaceAll(backup.exercises, backup.gymSessions)
             database.calendarDao().replaceAll(backup.calendarEvents)
             database.moodDao().replaceAll(backup.moodEntries)
+            database.foodDao().replaceAll(backup.foodLogEntries)
+            database.waterDao().replaceAll(backup.waterLogs)
         }
     }
 }

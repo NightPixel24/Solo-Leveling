@@ -85,6 +85,10 @@ dependencies {
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
 
+    // Food photo thumbnails (spec Section 4.6) - Coil over manual Bitmap decoding so large
+    // camera-resolution JPEGs get sampled/cached automatically instead of loaded full-size.
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 

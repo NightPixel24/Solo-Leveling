@@ -9,14 +9,17 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nightpixel.sololeveling.data.dao.AppMetaDao
 import com.nightpixel.sololeveling.data.dao.CalendarDao
+import com.nightpixel.sololeveling.data.dao.FoodDao
 import com.nightpixel.sololeveling.data.dao.GymDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.dao.MoodDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
+import com.nightpixel.sololeveling.data.dao.WaterDao
 import com.nightpixel.sololeveling.data.entity.AppMeta
 import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
+import com.nightpixel.sololeveling.data.entity.FoodLogEntry
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
@@ -24,6 +27,7 @@ import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.TaskList
+import com.nightpixel.sololeveling.data.entity.WaterLog
 
 /**
  * Every schema change here must ship with an explicit Room Migration
@@ -34,9 +38,9 @@ import com.nightpixel.sololeveling.data.entity.TaskList
     entities = [
         AppMeta::class, Task::class, Subtask::class, TaskList::class,
         Habit::class, HabitLog::class, Exercise::class, GymSession::class,
-        CalendarEventCache::class, MoodEntry::class
+        CalendarEventCache::class, MoodEntry::class, FoodLogEntry::class, WaterLog::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -48,9 +52,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun gymDao(): GymDao
     abstract fun calendarDao(): CalendarDao
     abstract fun moodDao(): MoodDao
+    abstract fun foodDao(): FoodDao
+    abstract fun waterDao(): WaterDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 7
+        const val CURRENT_SCHEMA_VERSION = 8
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
@@ -206,6 +212,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS food_log_entries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        date TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        photoUri TEXT NOT NULL,
+                        description TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS water_logs (
+                        date TEXT NOT NULL PRIMARY KEY,
+                        bottlesLogged INTEGER NOT NULL,
+                        goalBottles INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -218,7 +249,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                        MIGRATION_6_7
+                        MIGRATION_6_7, MIGRATION_7_8
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
