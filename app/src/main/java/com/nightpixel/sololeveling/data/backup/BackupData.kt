@@ -6,6 +6,7 @@ import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
+import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.TaskList
@@ -28,5 +29,6 @@ data class BackupData(
     val habitLogs: List<HabitLog> = emptyList(),
     val exercises: List<Exercise> = emptyList(),
     val gymSessions: List<GymSession> = emptyList(),
-    val calendarEvents: List<CalendarEventCache> = emptyList()
+    val calendarEvents: List<CalendarEventCache> = emptyList(),
+    val moodEntries: List<MoodEntry> = emptyList()
 )

@@ -10,27 +10,31 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
-/** Shared placeholder for modules not yet built (spec Section 10 build order). */
+/** Shared placeholder content for modules not yet built (spec Section 10 build order) -
+ * no Scaffold of its own, so it can be embedded inside another screen's tabs (e.g. LifeScreen's
+ * Food/Water tabs) as well as used standalone via [PlaceholderScreen]. */
 @Composable
-fun PlaceholderScreen(title: String) {
-    Scaffold { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "$title\n(coming soon)",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+fun PlaceholderContent(title: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "$title\n(coming soon)",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
 @Composable
-fun LifeScreen() = PlaceholderScreen("Life (Mood / Food / Water)")
+fun PlaceholderScreen(title: String) {
+    Scaffold { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            PlaceholderContent(title)
+        }
+    }
+}
 
 @Composable
 fun RewardsScreen() = PlaceholderScreen("Rewards")

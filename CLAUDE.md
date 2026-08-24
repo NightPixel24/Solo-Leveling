@@ -74,7 +74,22 @@ root, so that path is dead-ended). A second AVD, `SoloLeveling_Pixel6_PlayStore`
 playstore` image), exists in case emulator-based auth testing is needed again, but hit the same
 network-interception wall - a real device stays the reliable way to test anything touching Google
 sign-in on this machine.
-Next up: **Phase 7** — Mood Tracker (color scale + heatmap view), per spec Section 10.
+**Phase 7 done**: Mood Tracker. `ui/screens/LifeScreen.kt` now owns the "Life" bottom-nav slot with
+a real `TabRow` (Mood/Food/Water, spec Section 8) - Food and Water are still `PlaceholderContent`
+(a Scaffold-less variant of `PlaceholderScreen` added so placeholders can be embedded inside another
+screen's tabs, not just used standalone) pending their own phases. Mood tab: a "Today" card (tap to
+rate) plus a month heatmap with prev/next navigation; tapping any day (past or present) opens the
+same rate/edit dialog, prefilled if that day already has an entry, with a Clear option. Backed by
+`MoodEntry` (schema v7, `AppDatabase.MIGRATION_6_7`) - `date` (ISO string) is the primary key
+directly since there's only ever one rating per day, no separate id/unique-index needed like
+Habit/Gym logs. Year-at-a-glance view (spec also mentions this alongside month) is deferred as a
+later polish pass, matching how Calendar's month/week/day grid was scoped down to an agenda list.
+**Fixed a real bug found on-device**: the heatmap's last (partial) week row only padded leading
+blank cells, not trailing ones, so a Row with fewer than 7 weighted children gave its lone cell
+(e.g. day 31 in a 31-day month starting mid-week) the *entire* row's width via `weight(1f)` instead
+of 1/7 of it, rendering as a giant oversized box. Fix: pad the cell list to a multiple of 7 on both
+ends before chunking into week rows.
+Next up: **Phase 8** — Food & Water Tracker (camera capture, bottle checklist), per spec Section 10.
 
 ## Locked-in decisions
 

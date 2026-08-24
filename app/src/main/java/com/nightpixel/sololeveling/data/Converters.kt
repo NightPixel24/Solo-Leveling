@@ -3,6 +3,7 @@ package com.nightpixel.sololeveling.data
 import androidx.room.TypeConverter
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.HabitFrequency
+import com.nightpixel.sololeveling.data.entity.MoodColor
 import com.nightpixel.sololeveling.data.entity.Priority
 import com.nightpixel.sololeveling.data.entity.StatTag
 
@@ -30,4 +31,10 @@ class Converters {
 
     @TypeConverter
     fun toExerciseType(value: String): ExerciseType = ExerciseType.valueOf(value)
+
+    @TypeConverter
+    fun fromMoodColor(color: MoodColor): String = color.name
+
+    @TypeConverter
+    fun toMoodColor(value: String): MoodColor = MoodColor.valueOf(value)
 }
