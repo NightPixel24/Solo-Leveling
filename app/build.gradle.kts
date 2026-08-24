@@ -76,6 +76,15 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
+    // Google Sign-In (Credential Manager) + Calendar API scope authorization (spec Section 4.1).
+    // Calendar events themselves are fetched via plain REST calls (see data/calendar/) rather
+    // than the heavyweight google-api-client - keeps this in line with the "no backend, keep it
+    // simple" approach the rest of the app follows.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 

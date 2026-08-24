@@ -8,11 +8,13 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nightpixel.sololeveling.data.dao.AppMetaDao
+import com.nightpixel.sololeveling.data.dao.CalendarDao
 import com.nightpixel.sololeveling.data.dao.GymDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
@@ -29,9 +31,10 @@ import com.nightpixel.sololeveling.data.entity.TaskList
 @Database(
     entities = [
         AppMeta::class, Task::class, Subtask::class, TaskList::class,
-        Habit::class, HabitLog::class, Exercise::class, GymSession::class
+        Habit::class, HabitLog::class, Exercise::class, GymSession::class,
+        CalendarEventCache::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -41,9 +44,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskListDao(): TaskListDao
     abstract fun habitDao(): HabitDao
     abstract fun gymDao(): GymDao
+    abstract fun calendarDao(): CalendarDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 5
+        const val CURRENT_SCHEMA_VERSION = 6
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
@@ -169,6 +173,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS calendar_event_cache (
+                        googleEventId TEXT NOT NULL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        start INTEGER NOT NULL,
+                        end INTEGER NOT NULL,
+                        syncedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -179,7 +199,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

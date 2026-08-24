@@ -45,8 +45,19 @@ its targets, capturing actuals into a `GymSession` row for that date. Backed by 
 for something that's just a day number. PR tracking / Boss Fights (spec Section 5.5) and the
 STR/AGILITY/DISCIPLINE XP grants are still Phase 10/12 — this phase is purely the routine +
 logging mechanism.
-Next up: **Phase 6** — Google Calendar integration (OAuth, read + create events), per spec
-Section 10.
+**Phase 6 in progress**: Google Calendar integration. Data layer is done - `CalendarEventCache`
+(schema v6, `AppDatabase.MIGRATION_5_6`) is a read-only local mirror of Google Calendar, wholesale-
+replaced on every sync (`CalendarDao.replaceAll`) rather than diffed, since Google is always the
+source of truth. Added Credential Manager + Play Services Auth dependencies to `app/build.gradle.kts`
+for the sign-in/authorization flow. **Blocked on user action**: needs a Google Cloud Console OAuth
+setup (Calendar API enabled, an Android-type OAuth client registered with this app's package name +
+debug SHA-1, and a Web-type OAuth client whose Client ID becomes the `serverClientId` in code) before
+the actual sign-in + Calendar REST call code can be written and tested. Calendar events are fetched
+via plain REST calls against the Calendar API v3 (not the heavyweight `google-api-client` library) to
+stay consistent with the rest of the app's "no backend, keep it simple" approach.
+Once unblocked, still to build: OAuth sign-in flow, event fetch+cache sync, event creation, and the
+CalendarScreen UI (month/week/day views per spec Section 4.1 - likely a simpler agenda/list view
+first, full calendar grid as a follow-up given the UI scope).
 
 ## Locked-in decisions
 
