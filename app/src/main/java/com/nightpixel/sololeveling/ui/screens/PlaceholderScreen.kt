@@ -30,9 +30,6 @@ fun PlaceholderScreen(title: String) {
 }
 
 @Composable
-fun CalendarScreen() = PlaceholderScreen("Calendar")
-
-@Composable
 fun LifeScreen() = PlaceholderScreen("Life (Mood / Food / Water)")
 
 @Composable

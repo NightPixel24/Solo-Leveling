@@ -45,19 +45,29 @@ its targets, capturing actuals into a `GymSession` row for that date. Backed by 
 for something that's just a day number. PR tracking / Boss Fights (spec Section 5.5) and the
 STR/AGILITY/DISCIPLINE XP grants are still Phase 10/12 — this phase is purely the routine +
 logging mechanism.
-**Phase 6 in progress**: Google Calendar integration. Data layer is done - `CalendarEventCache`
+**Phase 6 in progress**: Google Calendar integration. Data layer done - `CalendarEventCache`
 (schema v6, `AppDatabase.MIGRATION_5_6`) is a read-only local mirror of Google Calendar, wholesale-
 replaced on every sync (`CalendarDao.replaceAll`) rather than diffed, since Google is always the
-source of truth. Added Credential Manager + Play Services Auth dependencies to `app/build.gradle.kts`
-for the sign-in/authorization flow. **Blocked on user action**: needs a Google Cloud Console OAuth
-setup (Calendar API enabled, an Android-type OAuth client registered with this app's package name +
-debug SHA-1, and a Web-type OAuth client whose Client ID becomes the `serverClientId` in code) before
-the actual sign-in + Calendar REST call code can be written and tested. Calendar events are fetched
-via plain REST calls against the Calendar API v3 (not the heavyweight `google-api-client` library) to
-stay consistent with the rest of the app's "no backend, keep it simple" approach.
-Once unblocked, still to build: OAuth sign-in flow, event fetch+cache sync, event creation, and the
-CalendarScreen UI (month/week/day views per spec Section 4.1 - likely a simpler agenda/list view
-first, full calendar grid as a follow-up given the UI scope).
+source of truth. Google Cloud Console OAuth is set up (Calendar API enabled; an Android-type OAuth
+client registered with this app's package name + debug SHA-1; a Web-type client whose Client ID is
+in `res/values/strings.xml` as `google_web_client_id` - public identifier, not a secret, safe to
+commit). Sign-in/authorization code is written: `data/calendar/GoogleAuthManager.kt` uses Credential
+Manager for identity (`signIn()`) and the separate Play Services Identity Authorization Client for
+the actual Calendar OAuth scope + access token (`requestCalendarAccess()`/`handleConsentResult()`) -
+these are deliberately separate per Google's current guidance (identity vs. incremental API
+authorization), and no token is persisted; the app just re-requests (silently, once already granted)
+before each API call. `data/calendar/CalendarApiClient.kt` hits the Calendar API v3 REST endpoints
+directly with plain `HttpURLConnection` (not the heavyweight `google-api-client` library), matching
+the app's "no backend, keep it simple" approach. `ui/screens/CalendarScreen.kt` has a connect button,
+agenda-style event list (grouped by day; full month/week/day grid per spec Section 4.1 is a later
+polish pass), and a create-event dialog.
+**Verification status**: confirmed the sign-in flow correctly launches Google's real Credential
+Manager UI (app-side code, client IDs, and registration are all correct) - but this machine's
+original AVD (`SoloLeveling_Pixel6`, plain `google_apis` image) can't actually add a Google account
+(Play Services' own account-add flow fails on that image type, unrelated to this app). Created a
+second AVD, `SoloLeveling_Pixel6_PlayStore` (`google_apis_playstore` image), for reliable real
+account sign-in - **still needs a human to actually sign in** (only the user can enter their Google
+credentials/2FA) before the end-to-end Calendar read/write can be confirmed working.
 
 ## Locked-in decisions
 
@@ -79,6 +89,12 @@ first, full calendar grid as a follow-up given the UI scope).
   the `dev-machine-jdk-tls-workaround` memory for why, before touching JDK/Gradle config here.
 - `./gradlew.bat assembleDebug` works standalone (no manual env vars) once `~/.gradle/gradle.properties`
   has `org.gradle.java.home` pointing at the JDK 17 above.
-- An AVD `SoloLeveling_Pixel6` (Pixel 6, API 35, x86_64) exists and is the standard way to test
-  changes on this machine: `./gradlew installDebug` builds+installs to whichever device/emulator
-  `adb` sees. Start it with `emulator -avd SoloLeveling_Pixel6` if it's not already running.
+- An AVD `SoloLeveling_Pixel6` (Pixel 6, API 35, x86_64, plain `google_apis` image) exists and is
+  the standard way to test changes on this machine: `./gradlew installDebug` builds+installs to
+  whichever device/emulator `adb` sees. Start it with `emulator -avd SoloLeveling_Pixel6` if it's
+  not already running.
+- A second AVD, `SoloLeveling_Pixel6_PlayStore` (same Pixel 6/API 35, but `google_apis_playstore`
+  image), exists specifically for testing real Google sign-in - the plain `google_apis` image
+  can't reliably add a real Google account (Play Services' own add-account flow fails on it).
+  Use this one for anything touching Credential Manager / Google auth; the plain one is fine (and
+  slightly lighter) for everything else.

@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">Solo Leveling</string>
+    <!-- OAuth Web client ID (public identifier, not a secret - safe to commit).
+         Registered in Google Cloud Console per CLAUDE.md's Phase 6 notes. -->
+    <string name="google_web_client_id" translatable="false">434191510928-6smdarm3dkn50hkdcntafbhtks77j02s.apps.googleusercontent.com</string>
 </resources>
