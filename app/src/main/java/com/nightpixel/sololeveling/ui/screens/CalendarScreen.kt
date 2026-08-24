@@ -42,6 +42,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,7 +55,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.nightpixel.sololeveling.SoloLevelingApplication
-import com.nightpixel.sololeveling.data.calendar.GoogleAccountInfo
 import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -72,7 +72,11 @@ fun CalendarScreen() {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var account by remember { mutableStateOf<GoogleAccountInfo?>(null) }
+    // Google/Play Services remembers the Calendar grant persistently (across navigation and app
+    // restarts) - this just tracks whether *this composition* already knows that, seeded from
+    // the Application-level cache so revisiting the tab within the same process is instant, plus
+    // a silent re-check below for cold starts where the cache itself was reset.
+    var hasAccess by remember { mutableStateOf(app.calendarAccessGranted) }
     var connecting by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -82,6 +86,11 @@ fun CalendarScreen() {
 
     fun showError(message: String?) {
         scope.launch { snackbarHostState.showSnackbar(message ?: "Something went wrong") }
+    }
+
+    fun setAccess(granted: Boolean) {
+        hasAccess = granted
+        app.calendarAccessGranted = granted
     }
 
     val consentLauncher = rememberLauncherForActivityResult(
@@ -125,12 +134,28 @@ fun CalendarScreen() {
         connecting = true
         scope.launch {
             runCatching { app.googleAuthManager.signIn(context) }
-                .onSuccess { info ->
-                    account = info
-                    withCalendarAccess { token -> sync(token) }
+                .onSuccess {
+                    withCalendarAccess { token -> setAccess(true); sync(token) }
                 }
                 .onFailure { showError(it.message) }
             connecting = false
+        }
+    }
+
+    // Cold start (fresh process): the Application-level cache reset too, so re-check with Play
+    // Services whether the Calendar grant is still there before showing "Connect" - silent-only,
+    // never launches the consent screen unprompted (onNeedsConsent/onError just leave the button
+    // showing, same as if we'd never checked).
+    LaunchedEffect(Unit) {
+        if (!hasAccess) {
+            app.googleAuthManager.requestCalendarAccess(
+                context = context,
+                onAuthorized = { token -> setAccess(true); sync(token) },
+                onNeedsConsent = {},
+                onError = {}
+            )
+        } else {
+            withCalendarAccess { token -> sync(token) }
         }
     }
 
@@ -139,7 +164,7 @@ fun CalendarScreen() {
             TopAppBar(
                 title = { Text("Calendar") },
                 actions = {
-                    if (account != null) {
+                    if (hasAccess) {
                         IconButton(onClick = { withCalendarAccess { token -> sync(token) } }) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Sync")
                         }
@@ -149,7 +174,7 @@ fun CalendarScreen() {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (account != null) {
+            if (hasAccess) {
                 FloatingActionButton(onClick = { showAddDialog = true }) {
                     Icon(Icons.Filled.Add, contentDescription = "Add event")
                 }
@@ -161,7 +186,7 @@ fun CalendarScreen() {
             contentAlignment = Alignment.Center
         ) {
             when {
-                account == null -> Column(
+                !hasAccess -> Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {

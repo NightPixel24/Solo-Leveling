@@ -45,29 +45,36 @@ its targets, capturing actuals into a `GymSession` row for that date. Backed by 
 for something that's just a day number. PR tracking / Boss Fights (spec Section 5.5) and the
 STR/AGILITY/DISCIPLINE XP grants are still Phase 10/12 — this phase is purely the routine +
 logging mechanism.
-**Phase 6 in progress**: Google Calendar integration. Data layer done - `CalendarEventCache`
-(schema v6, `AppDatabase.MIGRATION_5_6`) is a read-only local mirror of Google Calendar, wholesale-
-replaced on every sync (`CalendarDao.replaceAll`) rather than diffed, since Google is always the
-source of truth. Google Cloud Console OAuth is set up (Calendar API enabled; an Android-type OAuth
-client registered with this app's package name + debug SHA-1; a Web-type client whose Client ID is
-in `res/values/strings.xml` as `google_web_client_id` - public identifier, not a secret, safe to
-commit). Sign-in/authorization code is written: `data/calendar/GoogleAuthManager.kt` uses Credential
-Manager for identity (`signIn()`) and the separate Play Services Identity Authorization Client for
-the actual Calendar OAuth scope + access token (`requestCalendarAccess()`/`handleConsentResult()`) -
-these are deliberately separate per Google's current guidance (identity vs. incremental API
-authorization), and no token is persisted; the app just re-requests (silently, once already granted)
-before each API call. `data/calendar/CalendarApiClient.kt` hits the Calendar API v3 REST endpoints
-directly with plain `HttpURLConnection` (not the heavyweight `google-api-client` library), matching
-the app's "no backend, keep it simple" approach. `ui/screens/CalendarScreen.kt` has a connect button,
-agenda-style event list (grouped by day; full month/week/day grid per spec Section 4.1 is a later
-polish pass), and a create-event dialog.
-**Verification status**: confirmed the sign-in flow correctly launches Google's real Credential
-Manager UI (app-side code, client IDs, and registration are all correct) - but this machine's
-original AVD (`SoloLeveling_Pixel6`, plain `google_apis` image) can't actually add a Google account
-(Play Services' own account-add flow fails on that image type, unrelated to this app). Created a
-second AVD, `SoloLeveling_Pixel6_PlayStore` (`google_apis_playstore` image), for reliable real
-account sign-in - **still needs a human to actually sign in** (only the user can enter their Google
-credentials/2FA) before the end-to-end Calendar read/write can be confirmed working.
+**Phase 6 done**: Google Calendar integration. `CalendarEventCache` (schema v6,
+`AppDatabase.MIGRATION_5_6`) is a read-only local mirror of Google Calendar, wholesale-replaced on
+every sync (`CalendarDao.replaceAll`) rather than diffed, since Google is always the source of
+truth. Google Cloud Console OAuth is set up (Calendar API enabled; an Android-type OAuth client
+registered with this app's package name + debug SHA-1; a Web-type client whose Client ID is in
+`res/values/strings.xml` as `google_web_client_id` - public identifier, not a secret, safe to
+commit). `data/calendar/GoogleAuthManager.kt` uses Credential Manager for identity (`signIn()`) and
+the separate Play Services Identity Authorization Client for the actual Calendar OAuth scope +
+access token (`requestCalendarAccess()`/`handleConsentResult()`) - deliberately separate per
+Google's current guidance (identity vs. incremental API authorization); no token is persisted, the
+app just re-requests (silently, once already granted) before each API call. `data/calendar/
+CalendarApiClient.kt` hits the Calendar v3 REST endpoints directly with plain `HttpURLConnection`
+(not the heavyweight `google-api-client` library). `ui/screens/CalendarScreen.kt`: connect button,
+agenda-style event list grouped by day (full month/week/day grid per spec Section 4.1 is a later
+polish pass), create-event dialog. `SoloLevelingApplication.calendarAccessGranted` caches the
+"already connected" fact for the process lifetime, and `CalendarScreen` does a silent (no UI)
+re-check with Play Services on cold start when that cache is empty - **fixed a real bug** where the
+connected state was plain `remember {}` Compose state, so it reset (forcing reconnect) every time
+the composable left composition, e.g. navigating to another tab and back, even though the
+underlying Google grant was still valid the whole time.
+Verified end-to-end on a real device (Pixel 7, real Google account over USB debugging) - the
+`SoloLeveling_Pixel6` emulator can't test real sign-in (Play Services' add-account flow fails on
+its `google_apis` image over this machine's network - see the `dev-machine-jdk-tls-workaround`
+memory; tried fixing it by installing this machine's TLS-interception root CA into the emulator's
+system trust store, but Android 14+'s real CA store lives in a read-only APEX module even with
+root, so that path is dead-ended). A second AVD, `SoloLeveling_Pixel6_PlayStore` (`google_apis_
+playstore` image), exists in case emulator-based auth testing is needed again, but hit the same
+network-interception wall - a real device stays the reliable way to test anything touching Google
+sign-in on this machine.
+Next up: **Phase 7** — Mood Tracker (color scale + heatmap view), per spec Section 10.
 
 ## Locked-in decisions
 
@@ -96,5 +103,9 @@ credentials/2FA) before the end-to-end Calendar read/write can be confirmed work
 - A second AVD, `SoloLeveling_Pixel6_PlayStore` (same Pixel 6/API 35, but `google_apis_playstore`
   image), exists specifically for testing real Google sign-in - the plain `google_apis` image
   can't reliably add a real Google account (Play Services' own add-account flow fails on it).
-  Use this one for anything touching Credential Manager / Google auth; the plain one is fine (and
-  slightly lighter) for everything else.
+  Neither emulator can actually complete real Google sign-in on this machine though (network-level
+  TLS interception - see the `dev-machine-jdk-tls-workaround` memory); a real device over USB
+  debugging is the reliable way to test anything touching Google auth here.
+- `SoloLeveling_Pixel6` specifically has verity disabled and `/system` overlaid as writable (from
+  the CA-install attempt during Phase 6 - didn't fix the auth issue, see memory above, but left
+  the emulator in that state; harmless, just means that AVD's `/system` isn't read-only anymore).
