@@ -8,6 +8,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nightpixel.sololeveling.data.dao.AppMetaDao
+import com.nightpixel.sololeveling.data.dao.BossDao
 import com.nightpixel.sololeveling.data.dao.CalendarDao
 import com.nightpixel.sololeveling.data.dao.FoodDao
 import com.nightpixel.sololeveling.data.dao.GoalDao
@@ -19,6 +20,7 @@ import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
 import com.nightpixel.sololeveling.data.dao.WaterDao
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.Boss
 import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
@@ -45,9 +47,9 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         AppMeta::class, Task::class, Subtask::class, TaskList::class,
         Habit::class, HabitLog::class, Exercise::class, GymSession::class,
         CalendarEventCache::class, MoodEntry::class, FoodLogEntry::class, WaterLog::class,
-        Goal::class, Stat::class, XpLog::class
+        Goal::class, Stat::class, XpLog::class, Boss::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -63,9 +65,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun waterDao(): WaterDao
     abstract fun goalDao(): GoalDao
     abstract fun statDao(): StatDao
+    abstract fun bossDao(): BossDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 10
+        const val CURRENT_SCHEMA_VERSION = 11
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
@@ -295,6 +298,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS bosses (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        exerciseId INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        targetWeight REAL NOT NULL,
+                        defeated INTEGER NOT NULL,
+                        defeatedAt INTEGER,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(exerciseId) REFERENCES exercises(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_bosses_exerciseId ON bosses(exerciseId)")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -307,7 +330,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
+                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

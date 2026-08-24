@@ -39,7 +39,8 @@ class BackupManager(private val database: AppDatabase) {
             waterLogs = database.waterDao().getAllOnce(),
             goals = database.goalDao().getAllOnce(),
             stats = database.statDao().getAllStatsOnce(),
-            xpLogs = database.statDao().getAllXpLogsOnce()
+            xpLogs = database.statDao().getAllXpLogsOnce(),
+            bosses = database.bossDao().getAllOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -73,6 +74,7 @@ class BackupManager(private val database: AppDatabase) {
                 backup.stats.ifEmpty { StatTag.entries.map { Stat(tag = it) } },
                 backup.xpLogs
             )
+            database.bossDao().replaceAll(backup.bosses)
         }
     }
 }

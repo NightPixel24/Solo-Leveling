@@ -306,7 +306,13 @@ private fun TaskListContent(
                         val nowDone = !task.isDone
                         scope.launch {
                             taskDao.updateTask(task.copy(isDone = nowDone))
-                            if (nowDone) xpEngine.grant(StatTag.DISCIPLINE, 5, "Task: ${task.title}")
+                            if (nowDone) {
+                                xpEngine.grant(StatTag.DISCIPLINE, 5, "Task: ${task.title}")
+                                // Spec Section 5.4 - "your Task list, reframed" as Side Quests;
+                                // completing one grants a small bonus on top of normal task XP.
+                                // No spec-given amount, so this is this app's own tuned value.
+                                xpEngine.grant(StatTag.DISCIPLINE, 3, "Side Quest bonus: ${task.title}")
+                            }
                         }
                     },
                     onDelete = { scope.launch { taskDao.deleteTask(taskWithSubtasks.task) } },

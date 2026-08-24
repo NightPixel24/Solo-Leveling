@@ -6,10 +6,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,10 +32,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.data.entity.Boss
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.gamification.MAX_STAT_LEVEL
+import com.nightpixel.sololeveling.data.gamification.QuestItem
+import com.nightpixel.sololeveling.data.gamification.computeDailyQuests
 import com.nightpixel.sololeveling.data.gamification.computeRank
+import com.nightpixel.sololeveling.data.gamification.computeWeeklyQuests
 import com.nightpixel.sololeveling.data.gamification.xpForLevel
 import com.nightpixel.sololeveling.ui.components.RadarChart
 import com.nightpixel.sololeveling.ui.components.RankBadge
@@ -39,13 +48,16 @@ import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemVioletBright
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
+import java.time.DayOfWeek
+import java.time.LocalDate
 
 /** The Status Window (spec Section 6) - the Section 5.1 radar chart, the Section 5.3 Rank badge,
- * and per-stat level/XP rows for now; Today's Quests, boss fights, and the rest of Section 6's
- * widgets are Phase 15 ("Dashboard/Analytics screen tying everything together"), not this phase's
- * scope. Settings, including Export/Import, is reached from here rather than the bottom nav (spec
- * Section 8). Life Goals is reached by tapping the Rank badge (spec Section 8), not a separate nav
- * action - the flag icon that stood in for it before the Rank engine existed is gone now. */
+ * per-stat level/XP rows, and (as of Phase 12) the spec Section 5.4 Today's/Weekly Quests and
+ * Section 5.5 Boss Fights, all computed live rather than persisted (see `data/gamification/
+ * Quests.kt` and `Boss.kt`'s doc comments for why). Mood heatmap preview, quick-add buttons, Life
+ * Goals summary, and the Analytics tab are still Phase 15 ("Dashboard/Analytics screen tying
+ * everything together"). Settings, including Export/Import, is reached from here rather than the
+ * bottom nav (spec Section 8). Life Goals is reached by tapping the Rank badge (spec Section 8). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
@@ -53,6 +65,12 @@ fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
     val app = context.applicationContext as SoloLevelingApplication
     val statDao = remember { app.database.statDao() }
     val goalDao = remember { app.database.goalDao() }
+    val habitDao = remember { app.database.habitDao() }
+    val gymDao = remember { app.database.gymDao() }
+    val waterDao = remember { app.database.waterDao() }
+    val moodDao = remember { app.database.moodDao() }
+    val taskDao = remember { app.database.taskDao() }
+    val bossDao = remember { app.database.bossDao() }
 
     val stats by statDao.observeStats().collectAsState(initial = emptyList())
     val byTag = remember(stats) { stats.associateBy { it.tag } }
@@ -60,6 +78,41 @@ fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
 
     val goals by goalDao.observeAll().collectAsState(initial = emptyList())
     val rank = remember(goals) { computeRank(goals) }
+
+    val today = remember { LocalDate.now() }
+    val todayStr = remember(today) { today.toString() }
+    val weekDays = remember(today) {
+        val monday = today.with(DayOfWeek.MONDAY)
+        (0..6).map { monday.plusDays(it.toLong()) }
+    }
+
+    val habitsWithLogs by habitDao.observeHabitsWithLogs().collectAsState(initial = emptyList())
+    val exercisesWithSessions by gymDao.observeExercisesWithSessions().collectAsState(initial = emptyList())
+    val todayWaterLog by waterDao.observeLog(todayStr).collectAsState(initial = null)
+    val allWaterLogs by waterDao.observeAllLogs().collectAsState(initial = emptyList())
+    val moodEntries by moodDao.observeEntries().collectAsState(initial = emptyList())
+    val allTasks by taskDao.observeAllTasks().collectAsState(initial = emptyList())
+    val bosses by bossDao.observeBosses().collectAsState(initial = emptyList())
+
+    val dailyQuests = remember(habitsWithLogs, exercisesWithSessions, todayWaterLog, moodEntries, allTasks, today) {
+        computeDailyQuests(
+            today = today,
+            habitsWithLogs = habitsWithLogs,
+            exercisesWithSessions = exercisesWithSessions,
+            waterLog = todayWaterLog,
+            moodLoggedToday = moodEntries.any { it.date == todayStr },
+            allTasks = allTasks
+        )
+    }
+    val weeklyQuests = remember(habitsWithLogs, exercisesWithSessions, allWaterLogs, today, weekDays) {
+        computeWeeklyQuests(
+            today = today,
+            weekDays = weekDays,
+            habitsWithLogs = habitsWithLogs,
+            exercisesWithSessions = exercisesWithSessions,
+            waterLogsByDate = allWaterLogs.associateBy { it.date }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -104,9 +157,87 @@ fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
             items(orderedStats, key = { it.tag }) { stat ->
                 StatRow(stat)
             }
+            if (dailyQuests.isNotEmpty()) {
+                item { SectionHeader("Today's Quests") }
+                item { QuestList(dailyQuests) }
+            }
+            item { SectionHeader("This Week's Quests") }
+            item { WeeklyQuestCard(weeklyQuests.items, weeklyQuests.goodWeek) }
+            val activeBosses = bosses.filter { !it.defeated }
+            if (activeBosses.isNotEmpty()) {
+                item { SectionHeader("Active Boss Fights") }
+                items(activeBosses, key = { it.id }) { boss ->
+                    val bestWeight = exercisesWithSessions
+                        .find { it.exercise.id == boss.exerciseId }
+                        ?.sessions?.mapNotNull { it.actualWeight }?.maxOrNull() ?: 0.0
+                    DashboardBossRow(boss, bestWeight)
+                }
+            }
         }
     }
 }
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(title, style = MaterialTheme.typography.titleMedium)
+}
+
+@Composable
+private fun QuestList(quests: List<QuestItem>) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            quests.forEach { quest -> QuestRow(quest) }
+        }
+    }
+}
+
+@Composable
+private fun QuestRow(quest: QuestItem) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(
+            if (quest.done) Icons.Filled.Check else Icons.Filled.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (quest.done) SystemGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            quest.label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (quest.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+private fun WeeklyQuestCard(items: List<QuestItem>, goodWeek: Boolean) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items.forEach { quest -> QuestRow(quest) }
+            if (goodWeek) {
+                Text("Good week!", color = SystemGreen, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardBossRow(boss: Boss, currentBest: Double) {
+    val progress = if (boss.targetWeight > 0) (currentBest / boss.targetWeight).toFloat().coerceIn(0f, 1f) else 0f
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(boss.name, style = MaterialTheme.typography.titleMedium)
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = SystemRed)
+            Text(
+                "${cleanNumber(currentBest)}kg / ${cleanNumber(boss.targetWeight)}kg",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private fun cleanNumber(value: Double): String =
+    if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
 
 @Composable
 private fun StatRow(stat: Stat) {

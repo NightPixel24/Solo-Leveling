@@ -30,9 +30,8 @@ gamification XP wiring itself is still Phase 10). One "did it today" checkbox pe
 habits show a streak count, weekly habits show "X/Y this week" toward `targetPerWeek` plus a
 streak once a week's target is met. Backed by `Habit`/`HabitLog` (schema v4,
 `AppDatabase.MIGRATION_3_4`), `HabitLog` has a real FK+cascade to `Habit` (both tables are new,
-unlike the `Task`→`TaskList` retrofit). Streak-freeze (spec Section 5.4) is NOT implemented yet —
-it needs the Quest/weekly-review infrastructure from Phase 12, so today's streak calc is a plain
-"consecutive days/weeks" count with no freeze exemption. `reminderTime` is captured (Material3
+unlike the `Task`→`TaskList` retrofit). Streak-freeze (spec Section 5.4) landed in Phase 12 once
+the Quest infrastructure it was waiting on existed. `reminderTime` is captured (Material3
 `TimePicker`) but not scheduled — actual notifications are Phase 16.
 **Phase 5 done**: Gym Tracker (`ui/screens/GymScreen.kt`) — a weekly routine of exercises each
 pinned to a day of week (Mon-Sun), grouped under day headers (only days with exercises shown).
@@ -216,7 +215,50 @@ recomputed the badge to "C" (`GoalTier.THREE_MONTH -> RankTier.C`); reproduced t
 via temporary log lines showing the back stack was byte-for-byte unchanged after a failed
 Home-tap-from-Goals, then confirmed the `popBackStack`-first fix resolves it for both Goals and
 Settings while leaving ordinary tab-switching intact; a final `adb logcat` sweep showed no crashes.
-Next up: **Phase 12** — Quests (daily/weekly auto-generation) + Boss Fights, per spec Section 10.
+**Phase 12 done**: Quests + Boss Fights (PR Boss only - see below). `data/gamification/Quests.kt`
+computes Today's/Weekly Quests (spec Section 5.4) live from each source's own data - a habit,
+task, gym session, water log, and mood entry already record their own done state, so a separate
+persisted `Quest` row would just be a second, potentially-stale copy of the same fact; this is the
+same "derive, don't store" reasoning Rank (Phase 11) already established. Today's Quests: one entry
+per DAILY habit (WEEKLY habits are excluded - they have no specific "due today"), one per exercise
+scheduled today, the water goal, tonight's mood check-in, and tasks due today. Weekly Quests: the
+spec's three example targets ("complete all scheduled gym days," "hit water goal 6/7 days," "zero
+missed daily habits"), evaluated Monday..today with today itself never counted as a miss since the
+day isn't over yet; all three passing marks a "good week" (spec Section 5.7 will use that for
+monthly rewards once Phase 14 exists). Both show as new sections on `DashboardScreen.kt`. Side
+Quests ("your Task list, reframed... a small bonus on top of normal task XP") is just an extra tuned
++3 DISCIPLINE grant alongside the existing task-completion XP, since a task already *is* a side
+quest per the spec's own framing - no separate entity needed.
+Streak-freeze (deferred since Phase 4) is now live: `dailyStreak()` in `HabitsScreen.kt` forgives
+one missed day per rolling 7-day window without needing a separate freeze-usage table - a gap is
+simply skipped (doesn't add to the streak count, doesn't break the chain before it) as long as the
+last forgiven gap was 7+ days back.
+Boss Fights (spec Section 5.5): PR Boss only. `Boss` (schema v11, `AppDatabase.MIGRATION_10_11`,
+FK+cascade to `Exercise`) stores `defeated`/`defeatedAt` but *not* HP - HP is computed live as
+`targetWeight - best logged weight for that exercise`, so nothing needs to stay in sync when a
+session is logged or edited; `defeated` IS stored though, since the spec calls the win a "permanent
+trophy" and a purely-computed flag could un-defeat itself if a later session were edited or deleted.
+Managed from a new "Boss Fights" section at the top of `GymScreen.kt` (pick a Strength exercise,
+name, target weight); defeating one (logging a session whose weight meets the target) grants a
+tuned +50 STR bonus reward and shows a permanent "Defeated!" card. Streak Boss (habit/Cardio-Sport
+streak HP with a Hard/Easy mode toggle) is deferred - the spec leaves too many undefined parameters
+(period length, what counts as a "successful period" for an arbitrary habit vs. exercise, per-boss
+mode choice) to implement well without more direction, same reasoning as other phases' deferrals.
+**Fixed two real bugs found on-device**: (1) creating a boss against an exercise that already had a
+logged PR meeting or beating the target (e.g. setting a lower target than your current best) left
+it stuck at 0 HP forever, never flipping to defeated, because the defeat check only ran on the
+*next* session log - fixed by also checking at boss-creation time. (2) `BossRow` only rendered a
+delete button for non-defeated bosses, so a defeated boss's card - including ones created purely
+for on-device testing - could never be removed; fixed by always showing delete, since the "permanent
+trophy" is the XP reward already granted (which deleting the card doesn't undo), not the card itself.
+Verified on-device (`SoloLeveling_Pixel6` emulator, upgrading an existing v10 install so the real
+v10->v11 migration ran): migration succeeded with no crash; Dashboard's Today's/Weekly Quests
+correctly reflected existing habit/task/mood state live; created a boss against an exercise with an
+existing 100kg PR and a 65kg target and confirmed it showed "Defeated!" immediately with +50 STR
+granted; deleted it via the newly-added always-visible delete button and confirmed the boss list
+and Dashboard's Active Boss Fights section both updated correctly; a final `adb logcat` sweep across
+the whole session showed no crashes.
+Next up: **Phase 13** — Punishment Pool, per spec Section 10.
 
 ## Locked-in decisions
 

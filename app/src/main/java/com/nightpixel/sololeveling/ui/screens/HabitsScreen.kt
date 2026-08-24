@@ -69,6 +69,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -388,12 +389,27 @@ private fun AddHabitDialog(
 
 private fun weekStart(date: LocalDate): LocalDate = date.with(DayOfWeek.MONDAY)
 
+/** Spec Section 5.4 - "once per week, a missed daily habit doesn't break its streak." No separate
+ * freeze-usage table: a gap is forgiven the moment it's encountered as long as the last forgiven
+ * gap (if any) was 7+ days back, which is equivalent to "one freeze per rolling week" without
+ * needing to persist anything - the streak is still computed purely from HabitLog. A forgiven day
+ * doesn't add to the streak count (the habit wasn't actually done that day), it just doesn't break
+ * the chain of days before it. */
 private fun dailyStreak(doneDates: Set<LocalDate>, today: LocalDate): Int {
     var streak = 0
     var day = if (today in doneDates) today else today.minusDays(1)
-    while (day in doneDates) {
-        streak++
-        day = day.minusDays(1)
+    var lastFreezeDate: LocalDate? = null
+    while (true) {
+        if (day in doneDates) {
+            streak++
+            day = day.minusDays(1)
+        } else {
+            val freezeAvailable = lastFreezeDate == null ||
+                ChronoUnit.DAYS.between(day, lastFreezeDate) >= 7
+            if (!freezeAvailable) break
+            lastFreezeDate = day
+            day = day.minusDays(1)
+        }
     }
     return streak
 }

@@ -25,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -45,10 +46,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.data.entity.Boss
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.StatTag
+import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
 import kotlinx.coroutines.launch
@@ -63,11 +66,14 @@ fun GymScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val gymDao = remember { app.database.gymDao() }
+    val bossDao = remember { app.database.bossDao() }
     val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
 
     val exercises by gymDao.observeExercisesWithSessions().collectAsState(initial = emptyList())
+    val bosses by bossDao.observeBosses().collectAsState(initial = emptyList())
     var showAddDialog by remember { mutableStateOf(false) }
+    var showAddBossDialog by remember { mutableStateOf(false) }
     var logTarget by remember { mutableStateOf<Pair<Exercise, LocalDate>?>(null) }
 
     val today = remember { LocalDate.now() }
@@ -102,6 +108,35 @@ fun GymScreen() {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                val strengthExercises = exercises.filter { it.exercise.type == ExerciseType.STRENGTH }
+                if (strengthExercises.isNotEmpty() || bosses.isNotEmpty()) {
+                    item(key = "boss-header") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            SectionHeader("Boss Fights")
+                            val canAddBoss = strengthExercises.any { se ->
+                                bosses.none { it.exerciseId == se.exercise.id && !it.defeated }
+                            }
+                            IconButton(onClick = { showAddBossDialog = true }, enabled = canAddBoss) {
+                                Icon(Icons.Filled.Add, contentDescription = "Add boss")
+                            }
+                        }
+                    }
+                    items(bosses, key = { "boss-${it.id}" }) { boss ->
+                        val exerciseWithSessions = strengthExercises.find { it.exercise.id == boss.exerciseId }
+                        val bestWeight = exerciseWithSessions?.sessions
+                            ?.mapNotNull { it.actualWeight }?.maxOrNull() ?: 0.0
+                        BossRow(
+                            boss = boss,
+                            exerciseName = exerciseWithSessions?.exercise?.name ?: "Unknown exercise",
+                            currentBest = bestWeight,
+                            onDelete = { scope.launch { bossDao.deleteBoss(boss) } }
+                        )
+                    }
+                }
                 weekDays.forEach { day ->
                     val dayExercises = exercises.filter { it.exercise.dayOfWeek == day.dayOfWeek.value }
                     if (dayExercises.isNotEmpty()) {
@@ -140,6 +175,36 @@ fun GymScreen() {
         )
     }
 
+    if (showAddBossDialog) {
+        val available = exercises
+            .filter { it.exercise.type == ExerciseType.STRENGTH }
+            .map { it.exercise }
+            .filter { ex -> bosses.none { it.exerciseId == ex.id && !it.defeated } }
+        AddBossDialog(
+            availableExercises = available,
+            onDismiss = { showAddBossDialog = false },
+            onConfirm = { boss ->
+                // A boss can be created against an exercise that already has a logged PR meeting
+                // or beating the target (e.g. setting a lower target than your current best just
+                // to log the win) - detect that up front rather than only on the next session log,
+                // since otherwise it'd sit at 0 HP forever without ever flipping to defeated.
+                val currentBest = exercises.find { it.exercise.id == boss.exerciseId }
+                    ?.sessions?.mapNotNull { it.actualWeight }?.maxOrNull() ?: 0.0
+                val alreadyDefeated = currentBest >= boss.targetWeight
+                scope.launch {
+                    bossDao.insertBoss(
+                        if (alreadyDefeated) boss.copy(defeated = true, defeatedAt = System.currentTimeMillis())
+                        else boss
+                    )
+                    if (alreadyDefeated) {
+                        xpEngine.grant(StatTag.STR, 50, "Boss defeated: ${boss.name}")
+                    }
+                }
+                showAddBossDialog = false
+            }
+        )
+    }
+
     logTarget?.let { (exercise, date) ->
         LogSessionDialog(
             exercise = exercise,
@@ -148,6 +213,9 @@ fun GymScreen() {
                 val previousSessions = exercises.find { it.exercise.id == exercise.id }?.sessions.orEmpty()
                 val isPr = isPersonalRecord(exercise, session, previousSessions)
                 val statTag = if (exercise.type == ExerciseType.STRENGTH) StatTag.STR else StatTag.AGILITY
+                val newlyDefeatedBoss = session.actualWeight?.let { weight ->
+                    bosses.find { it.exerciseId == exercise.id && !it.defeated && weight >= it.targetWeight }
+                }
                 scope.launch {
                     gymDao.upsertSession(session.copy(exerciseId = exercise.id, date = date.toString()))
                     xpEngine.grant(
@@ -155,6 +223,12 @@ fun GymScreen() {
                         if (isPr) 40 else 15,
                         if (isPr) "Gym PR: ${exercise.name}" else "Gym: ${exercise.name}"
                     )
+                    newlyDefeatedBoss?.let { boss ->
+                        bossDao.updateBoss(boss.copy(defeated = true, defeatedAt = System.currentTimeMillis()))
+                        // Spec Section 5.5 - defeating a boss grants "a bonus reward"; no amount
+                        // given, so this is this app's own tuned value, same as other examples.
+                        xpEngine.grant(StatTag.STR, 50, "Boss defeated: ${boss.name}")
+                    }
                 }
                 logTarget = null
             }
@@ -219,6 +293,120 @@ private fun ExerciseRow(
             }
         }
     }
+}
+
+@Composable
+private fun BossRow(boss: Boss, exerciseName: String, currentBest: Double, onDelete: () -> Unit) {
+    val hpRemaining = (boss.targetWeight - currentBest).coerceAtLeast(0.0)
+    val progress = if (boss.targetWeight > 0) (currentBest / boss.targetWeight).toFloat().coerceIn(0f, 1f) else 0f
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(boss.name, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        exerciseName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (boss.defeated) {
+                    Text(
+                        "Defeated!",
+                        color = SystemGreen,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+                // Deleting a defeated boss doesn't undo its already-granted XP reward - the
+                // "permanent trophy" is that reward, not the card itself, so removing the card
+                // to declutter is always allowed.
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete boss")
+                }
+            }
+            if (!boss.defeated) {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                Text(
+                    "${cleanNumber(currentBest)}kg / ${cleanNumber(boss.targetWeight)}kg" +
+                        " - ${cleanNumber(hpRemaining)}kg to go",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun AddBossDialog(
+    availableExercises: List<Exercise>,
+    onDismiss: () -> Unit,
+    onConfirm: (Boss) -> Unit
+) {
+    var selectedExercise by remember { mutableStateOf(availableExercises.firstOrNull()) }
+    var name by remember { mutableStateOf(selectedExercise?.let { "${it.name} Boss" } ?: "") }
+    var targetWeight by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New Boss") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Exercise:", style = MaterialTheme.typography.labelLarge)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    availableExercises.forEach { ex ->
+                        FilterChip(
+                            selected = selectedExercise?.id == ex.id,
+                            onClick = {
+                                selectedExercise = ex
+                                name = "${ex.name} Boss"
+                            },
+                            label = { Text(ex.name) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Boss name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = targetWeight,
+                    onValueChange = { targetWeight = it },
+                    label = { Text("Target weight (kg)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val exercise = selectedExercise
+                    val weight = targetWeight.toDoubleOrNull()
+                    if (exercise != null && weight != null && weight > 0 && name.isNotBlank()) {
+                        onConfirm(Boss(exerciseId = exercise.id, name = name.trim(), targetWeight = weight))
+                    }
+                },
+                enabled = selectedExercise != null && (targetWeight.toDoubleOrNull() ?: 0.0) > 0 && name.isNotBlank()
+            ) { Text("Add") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable

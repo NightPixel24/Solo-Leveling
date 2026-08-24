@@ -21,6 +21,11 @@ interface TaskDao {
     )
     fun observeTasksForList(listId: Long): Flow<List<TaskWithSubtasks>>
 
+    /** Across all lists - used by the Dashboard's Today's Quests section (spec Section 5.4) to
+     * find tasks due today regardless of which list they're filed under. */
+    @Query("SELECT * FROM tasks")
+    fun observeAllTasks(): Flow<List<Task>>
+
     @Insert
     suspend fun insertTask(task: Task): Long
 

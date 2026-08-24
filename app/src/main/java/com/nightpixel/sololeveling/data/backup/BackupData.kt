@@ -1,6 +1,7 @@
 package com.nightpixel.sololeveling.data.backup
 
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.Boss
 import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
@@ -40,5 +41,6 @@ data class BackupData(
     val waterLogs: List<WaterLog> = emptyList(),
     val goals: List<Goal> = emptyList(),
     val stats: List<Stat> = emptyList(),
-    val xpLogs: List<XpLog> = emptyList()
+    val xpLogs: List<XpLog> = emptyList(),
+    val bosses: List<Boss> = emptyList()
 )
