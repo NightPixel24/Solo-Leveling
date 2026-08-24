@@ -182,7 +182,41 @@ logging a heavier weight for the same exercise granted +40 and rolled STR from L
 at exactly 5/115 XP - matching `xpForLevel(2) = round(50 * 2^1.2) = 115` by hand; completing a task
 moved DISCIPLINE from 10 to 15 XP; a final `adb logcat` sweep across the whole session showed no
 crashes.
-Next up: **Phase 11** — Rank engine (goal-tier based, E→SS), per spec Section 10.
+**Phase 11 done**: Rank engine. `data/gamification/Rank.kt`'s `computeRank(goals: List<Goal>)` is a
+pure function - E through SS (spec Section 5.3), computed live from `Goal` data every time it's
+needed rather than persisted (there's no `Rank` table in spec Section 9's data model, so this
+follows the same "derive, don't store" approach as habit streaks). Implements the spec's stated
+default rule literally: rank is the highest rank among all *completed* goals' tiers, not a strict
+step-by-step unlock - so completing a Yearly goal before ever completing a 1-Month/3-Month/6-Month
+goal jumps straight to A. The spec also floats an "all goals at a tier" alternative as a future
+Settings toggle; deferred, same as Phase 9 deferred Habit-linking, until there's real usage data to
+justify it. `ui/components/RankBadge.kt` is a circular badge (spec Section 5.3: "sits next to the
+Stat radar chart... but the two are visually distinct") showing the rank letters, dropped into
+`DashboardScreen.kt` next to the radar chart with a "Rank" label; tapping it opens Life Goals,
+matching spec Section 8 exactly, and replaces the flag icon that stood in for it since Phase 9.
+**Fixed a real, pre-existing navigation bug found on-device**: tapping any bottom-nav item while on
+a screen reached *outside* the bottom-nav graph (Life Goals, Settings - both pushed via a plain
+`navController.navigate(route)` with no back-stack options) silently did nothing - confirmed via
+temporary logging that `navController.navigate(...)`'s `popUpTo(startDestination){saveState=true} +
+launchSingleTop + restoreState` combo (the standard bottom-nav pattern, copied from the official
+Compose Navigation sample) is a documented no-op when the target is the graph's start destination
+and it's already sitting, un-popped, beneath the current entry in the back stack - exactly the
+shape of stack that Goals/Settings leave behind. This is what made the Rank badge navigation loop
+back to itself instead of returning Home. Fixed in `BottomNavBar.kt` by trying
+`navController.popBackStack(destination.route, inclusive = false)` first (always correctly jumps
+back to an existing entry, including the start destination) and only falling through to the
+original navigate+restoreState logic when the target isn't already in the back stack (i.e.
+switching to a genuinely different, not-yet-visited bottom-nav tab). Verified this also fixes the
+identical latent bug for the Settings screen, and that normal tab-to-tab switching (with scroll/tab
+state restoration) still works afterward.
+Verified on-device (`SoloLeveling_Pixel6` emulator; no schema change this phase, so a plain
+`installDebug` update, not a migration test): cold-started with no completed goals and confirmed the
+badge showed "E"; completed a 3-Month goal via Life Goals and confirmed a fresh cold start
+recomputed the badge to "C" (`GoalTier.THREE_MONTH -> RankTier.C`); reproduced the navigation bug
+via temporary log lines showing the back stack was byte-for-byte unchanged after a failed
+Home-tap-from-Goals, then confirmed the `popBackStack`-first fix resolves it for both Goals and
+Settings while leaving ordinary tab-switching intact; a final `adb logcat` sweep showed no crashes.
+Next up: **Phase 12** — Quests (daily/weekly auto-generation) + Boss Fights, per spec Section 10.
 
 ## Locked-in decisions
 

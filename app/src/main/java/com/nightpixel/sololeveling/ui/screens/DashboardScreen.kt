@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -31,39 +30,42 @@ import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.gamification.MAX_STAT_LEVEL
+import com.nightpixel.sololeveling.data.gamification.computeRank
 import com.nightpixel.sololeveling.data.gamification.xpForLevel
 import com.nightpixel.sololeveling.ui.components.RadarChart
+import com.nightpixel.sololeveling.ui.components.RankBadge
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemVioletBright
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
 
-/** The Status Window (spec Section 6) - just the Section 5.1 radar chart + per-stat level/XP
- * list for now; Today's Quests, boss fights, and the rest of Section 6's widgets are Phase 15
- * ("Dashboard/Analytics screen tying everything together"), not this phase's scope. Settings,
- * including Export/Import, is reached from here rather than the bottom nav (spec Section 8). The
- * flag icon is a stand-in for the spec's Rank badge (tapping it also opens Life Goals) until the
- * Rank engine (Phase 11) actually builds that badge. */
+/** The Status Window (spec Section 6) - the Section 5.1 radar chart, the Section 5.3 Rank badge,
+ * and per-stat level/XP rows for now; Today's Quests, boss fights, and the rest of Section 6's
+ * widgets are Phase 15 ("Dashboard/Analytics screen tying everything together"), not this phase's
+ * scope. Settings, including Export/Import, is reached from here rather than the bottom nav (spec
+ * Section 8). Life Goals is reached by tapping the Rank badge (spec Section 8), not a separate nav
+ * action - the flag icon that stood in for it before the Rank engine existed is gone now. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val statDao = remember { app.database.statDao() }
+    val goalDao = remember { app.database.goalDao() }
 
     val stats by statDao.observeStats().collectAsState(initial = emptyList())
     val byTag = remember(stats) { stats.associateBy { it.tag } }
     val orderedStats = remember(byTag) { StatTag.entries.map { byTag[it] ?: Stat(tag = it) } }
+
+    val goals by goalDao.observeAll().collectAsState(initial = emptyList())
+    val rank = remember(goals) { computeRank(goals) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Dashboard") },
                 actions = {
-                    IconButton(onClick = onGoalsClick) {
-                        Icon(Icons.Filled.Flag, contentDescription = "Life Goals")
-                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
@@ -76,6 +78,23 @@ fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
             contentPadding = PaddingValues(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RankBadge(rank = rank, onClick = onGoalsClick)
+                    Column {
+                        Text("Rank", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Your life trajectory - tap to view Life Goals",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
             item {
                 RadarChart(
                     values = orderedStats.map { it.tag.name to it.level / MAX_STAT_LEVEL.toFloat() },
