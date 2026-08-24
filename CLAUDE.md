@@ -139,8 +139,50 @@ Yearly tier and changed status to Completed, saved, and confirmed it re-grouped 
 header with a green "Completed" label; deleted the goal via the edit dialog's Delete button and
 confirmed the list returned to its empty state; a final `adb logcat` sweep across the whole session
 showed no crashes.
-Next up: **Phase 10** — Gamification core: Stat engine (STR/VIT/DISCIPLINE/INT/AGILITY),
-XP/leveling, radar chart, per spec Section 10.
+**Phase 10 done**: Gamification core - Stat engine, XP/leveling, radar chart. `Stat` (one row per
+`StatTag`, schema v10, `AppDatabase.MIGRATION_9_10`, seeded at level 1/0 XP for both fresh installs
+and existing ones upgrading) and `XpLog` (an append-only audit trail, spec Section 5.1, not read
+back by the app yet but kept so the "tunable" grant amounts below can be analyzed later) back
+`data/gamification/XpEngine.kt` - a single `grant(tag, amount, source)` entry point that adds XP,
+rolls levels up via spec Section 5.2's `xpForLevel(level) = round(50 * level^1.2)` while XP exceeds
+the next threshold (capped at level 99), and writes the XpLog row. Exposed as
+`SoloLevelingApplication.xpEngine`, a peer to `database`/`backupManager`. Grants are one-directional
+- nothing in the spec calls for clawing XP back when a habit/task is unchecked, so every call site
+only invokes `grant` on the false->true completion transition, never on undo.
+Wired into every already-built screen the spec's Section 5.1 table names as a stat's source: Habit
+completion (`HabitsScreen`) grants the spec's example +10 XP to the habit's tagged stat; Task
+completion (`TasksScreen`) grants the spec's example +5 DISCIPLINE, and subtask completion grants a
+smaller +2 DISCIPLINE (subtasks aren't in the spec's XP example list, so this amount is this app's
+own tuned guess, same spirit as the given examples); Water goal hit (`WaterScreen`) grants the
+spec's example +10 VIT, gated by a new `WaterLog.xpGranted` boolean so draining and refilling
+bottles the same day after hitting the goal doesn't re-grant it; Food logged (`FoodScreen`) grants a
+tuned +5 VIT (spec lists "food logged" as a VIT source but gives no example amount); Gym session
+logged (`GymScreen`) grants +15 STR/AGILITY normally or +40 if it's a PR - "PR" here means the
+logged weight (Strength) or duration (Cardio/Sport) beats every previous session logged for that
+exact exercise, computed from the already-loaded `ExerciseWithSessions` list rather than needing
+full Boss-Fight-style target/HP tracking (that's Phase 12 scope; this is just the "is this the best
+I've logged" check needed to pick an XP amount now). Habit-streak bonuses and "showing up on a
+scheduled gym day" (also DISCIPLINE sources per the spec table) are deferred - both need a bonus
+amount and trigger condition the spec doesn't specify, same reasoning as other phases' deferrals.
+`ui/components/RadarChart.kt` is a from-scratch Canvas composable (Compose has no built-in chart
+API) - draws a generic N-axis pentagon (concentric percentage rings, axis lines, a filled/stroked
+data polygon, and axis labels via `TextMeasurer`), called from the new `DashboardScreen.kt` body
+with the 5 stats' `level / 99f` as the plotted fraction, plus a per-stat row below showing "Lv. X"
+and a linear XP-within-level progress bar. This replaces the Dashboard's "coming soon" placeholder,
+but only with the Section 5.1 pieces - Today's Quests, boss fights, the mood heatmap preview, and
+the rest of spec Section 6's widgets stay deferred to Phase 15 ("Dashboard/Analytics screen tying
+everything together"), which is also this phase's explicit slot in the build order, not this one's.
+No bugs found this phase.
+Verified on-device (`SoloLeveling_Pixel6` emulator, upgrading an existing v9 install so the real
+v9->v10 migration ran): migration completed with no crash, Dashboard rendered the pentagon radar
+chart with all 5 stats seeded at Lv. 1/0 XP; completing a DISCIPLINE-tagged habit moved that stat to
+10/50 XP live on the Dashboard; logging a Gym session with no prior PR granted +15 STR (this device
+already had gym history from earlier phase testing, so it correctly wasn't judged a PR), then
+logging a heavier weight for the same exercise granted +40 and rolled STR from Lv. 1 to Lv. 2 landing
+at exactly 5/115 XP - matching `xpForLevel(2) = round(50 * 2^1.2) = 115` by hand; completing a task
+moved DISCIPLINE from 10 to 15 XP; a final `adb logcat` sweep across the whole session showed no
+crashes.
+Next up: **Phase 11** — Rank engine (goal-tier based, E→SS), per spec Section 10.
 
 ## Locked-in decisions
 

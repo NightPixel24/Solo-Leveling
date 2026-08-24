@@ -48,6 +48,7 @@ import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.GymSession
+import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
 import kotlinx.coroutines.launch
@@ -62,6 +63,7 @@ fun GymScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val gymDao = remember { app.database.gymDao() }
+    val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
 
     val exercises by gymDao.observeExercisesWithSessions().collectAsState(initial = emptyList())
@@ -143,12 +145,38 @@ fun GymScreen() {
             exercise = exercise,
             onDismiss = { logTarget = null },
             onConfirm = { session ->
-                scope.launch { gymDao.upsertSession(session.copy(exerciseId = exercise.id, date = date.toString())) }
+                val previousSessions = exercises.find { it.exercise.id == exercise.id }?.sessions.orEmpty()
+                val isPr = isPersonalRecord(exercise, session, previousSessions)
+                val statTag = if (exercise.type == ExerciseType.STRENGTH) StatTag.STR else StatTag.AGILITY
+                scope.launch {
+                    gymDao.upsertSession(session.copy(exerciseId = exercise.id, date = date.toString()))
+                    xpEngine.grant(
+                        statTag,
+                        if (isPr) 40 else 15,
+                        if (isPr) "Gym PR: ${exercise.name}" else "Gym: ${exercise.name}"
+                    )
+                }
                 logTarget = null
             }
         )
     }
 }
+
+/** A session is a PR if it beats every previous session logged for the same exercise - Strength
+ * compares weight, Cardio/Sport compares duration (spec Section 5.2's "PR vs normal session"
+ * XP split). Full Boss-Fight-style PR tracking with a running target/HP is Phase 12 scope; this
+ * is just the simpler "is this the best I've logged" check needed to pick an XP amount now. */
+private fun isPersonalRecord(exercise: Exercise, session: GymSession, previousSessions: List<GymSession>): Boolean =
+    when (exercise.type) {
+        ExerciseType.STRENGTH -> {
+            val weight = session.actualWeight
+            weight != null && previousSessions.all { (it.actualWeight ?: 0.0) < weight }
+        }
+        ExerciseType.CARDIO_SPORT -> {
+            val duration = session.actualDuration
+            duration != null && previousSessions.all { (it.actualDuration ?: 0) < duration }
+        }
+    }
 
 @Composable
 private fun SectionHeader(title: String) {

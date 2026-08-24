@@ -5,10 +5,12 @@ import com.nightpixel.sololeveling.data.AppDatabase
 import com.nightpixel.sololeveling.data.backup.BackupManager
 import com.nightpixel.sololeveling.data.calendar.CalendarApiClient
 import com.nightpixel.sololeveling.data.calendar.GoogleAuthManager
+import com.nightpixel.sololeveling.data.gamification.XpEngine
 
 class SoloLevelingApplication : Application() {
     val database: AppDatabase by lazy { AppDatabase.getInstance(this) }
     val backupManager: BackupManager by lazy { BackupManager(database) }
+    val xpEngine: XpEngine by lazy { XpEngine(database.statDao()) }
     val googleAuthManager: GoogleAuthManager by lazy {
         GoogleAuthManager(getString(R.string.google_web_client_id))
     }

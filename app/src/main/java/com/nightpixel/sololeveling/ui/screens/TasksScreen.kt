@@ -64,10 +64,12 @@ import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.entity.Priority
+import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.TaskList
 import com.nightpixel.sololeveling.data.entity.TaskWithSubtasks
+import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
@@ -84,6 +86,7 @@ fun TasksScreen() {
     val app = context.applicationContext as SoloLevelingApplication
     val taskDao = remember { app.database.taskDao() }
     val taskListDao = remember { app.database.taskListDao() }
+    val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
 
     val lists by taskListDao.observeLists().collectAsState(initial = emptyList())
@@ -156,6 +159,7 @@ fun TasksScreen() {
                     TaskListContent(
                         listId = lists[page].id,
                         taskDao = taskDao,
+                        xpEngine = xpEngine,
                         scope = scope,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -275,6 +279,7 @@ private fun TaskListTabRow(
 private fun TaskListContent(
     listId: Long,
     taskDao: TaskDao,
+    xpEngine: XpEngine,
     scope: CoroutineScope,
     modifier: Modifier = Modifier
 ) {
@@ -297,13 +302,20 @@ private fun TaskListContent(
                 TaskCard(
                     taskWithSubtasks = taskWithSubtasks,
                     onToggleDone = {
+                        val task = taskWithSubtasks.task
+                        val nowDone = !task.isDone
                         scope.launch {
-                            taskDao.updateTask(taskWithSubtasks.task.copy(isDone = !taskWithSubtasks.task.isDone))
+                            taskDao.updateTask(task.copy(isDone = nowDone))
+                            if (nowDone) xpEngine.grant(StatTag.DISCIPLINE, 5, "Task: ${task.title}")
                         }
                     },
                     onDelete = { scope.launch { taskDao.deleteTask(taskWithSubtasks.task) } },
                     onToggleSubtask = { subtask ->
-                        scope.launch { taskDao.updateSubtask(subtask.copy(isDone = !subtask.isDone)) }
+                        val nowDone = !subtask.isDone
+                        scope.launch {
+                            taskDao.updateSubtask(subtask.copy(isDone = nowDone))
+                            if (nowDone) xpEngine.grant(StatTag.DISCIPLINE, 2, "Subtask: ${subtask.title}")
+                        }
                     },
                     onDeleteSubtask = { subtask -> scope.launch { taskDao.deleteSubtask(subtask) } },
                     onAddSubtask = { title ->

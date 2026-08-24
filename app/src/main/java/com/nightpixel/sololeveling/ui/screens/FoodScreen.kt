@@ -49,6 +49,7 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
+import com.nightpixel.sololeveling.data.entity.StatTag
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
@@ -62,6 +63,7 @@ fun FoodScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val foodDao = remember { app.database.foodDao() }
+    val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
 
     val entries by foodDao.observeEntries().collectAsState(initial = emptyList())
@@ -142,6 +144,7 @@ fun FoodScreen() {
                             description = description
                         )
                     )
+                    xpEngine.grant(StatTag.VIT, 5, "Food logged")
                 }
                 capturedPhotoFile = null
             }

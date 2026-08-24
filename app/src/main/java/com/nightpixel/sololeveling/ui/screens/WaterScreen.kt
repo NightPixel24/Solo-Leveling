@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.WaterLog
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import kotlinx.coroutines.launch
@@ -46,6 +47,7 @@ fun WaterScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val waterDao = remember { app.database.waterDao() }
+    val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
 
     val today = remember { LocalDate.now().toString() }
@@ -66,10 +68,19 @@ fun WaterScreen() {
     }
 
     fun updateBottles(newBottles: Int, newGoal: Int = goalBottles) {
+        val clamped = newBottles.coerceIn(0, newGoal)
+        val alreadyGranted = log?.xpGranted ?: false
+        val justHitGoal = clamped >= newGoal && !alreadyGranted
         scope.launch {
             waterDao.upsertLog(
-                WaterLog(date = today, bottlesLogged = newBottles.coerceIn(0, newGoal), goalBottles = newGoal)
+                WaterLog(
+                    date = today,
+                    bottlesLogged = clamped,
+                    goalBottles = newGoal,
+                    xpGranted = alreadyGranted || justHitGoal
+                )
             )
+            if (justHitGoal) xpEngine.grant(StatTag.VIT, 10, "Water goal hit")
         }
     }
 

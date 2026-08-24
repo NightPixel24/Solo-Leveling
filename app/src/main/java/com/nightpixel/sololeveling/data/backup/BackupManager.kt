@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.room.withTransaction
 import com.nightpixel.sololeveling.data.AppDatabase
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.Stat
+import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.TaskList
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.json.Json
@@ -35,7 +37,9 @@ class BackupManager(private val database: AppDatabase) {
             moodEntries = database.moodDao().getAllOnce(),
             foodLogEntries = database.foodDao().getAllOnce(),
             waterLogs = database.waterDao().getAllOnce(),
-            goals = database.goalDao().getAllOnce()
+            goals = database.goalDao().getAllOnce(),
+            stats = database.statDao().getAllStatsOnce(),
+            xpLogs = database.statDao().getAllXpLogsOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -65,6 +69,10 @@ class BackupManager(private val database: AppDatabase) {
             database.foodDao().replaceAll(backup.foodLogEntries)
             database.waterDao().replaceAll(backup.waterLogs)
             database.goalDao().replaceAll(backup.goals)
+            database.statDao().replaceAll(
+                backup.stats.ifEmpty { StatTag.entries.map { Stat(tag = it) } },
+                backup.xpLogs
+            )
         }
     }
 }

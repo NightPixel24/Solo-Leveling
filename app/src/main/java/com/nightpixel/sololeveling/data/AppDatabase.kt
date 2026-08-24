@@ -14,6 +14,7 @@ import com.nightpixel.sololeveling.data.dao.GoalDao
 import com.nightpixel.sololeveling.data.dao.GymDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.dao.MoodDao
+import com.nightpixel.sololeveling.data.dao.StatDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
 import com.nightpixel.sololeveling.data.dao.WaterDao
@@ -26,10 +27,13 @@ import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.MoodEntry
+import com.nightpixel.sololeveling.data.entity.Stat
+import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.TaskList
 import com.nightpixel.sololeveling.data.entity.WaterLog
+import com.nightpixel.sololeveling.data.entity.XpLog
 
 /**
  * Every schema change here must ship with an explicit Room Migration
@@ -41,9 +45,9 @@ import com.nightpixel.sololeveling.data.entity.WaterLog
         AppMeta::class, Task::class, Subtask::class, TaskList::class,
         Habit::class, HabitLog::class, Exercise::class, GymSession::class,
         CalendarEventCache::class, MoodEntry::class, FoodLogEntry::class, WaterLog::class,
-        Goal::class
+        Goal::class, Stat::class, XpLog::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -58,14 +62,18 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun foodDao(): FoodDao
     abstract fun waterDao(): WaterDao
     abstract fun goalDao(): GoalDao
+    abstract fun statDao(): StatDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 9
+        const val CURRENT_SCHEMA_VERSION = 10
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
             "INSERT INTO task_lists (id, name, position, createdAt) " +
                 "VALUES (${TaskList.DEFAULT_ID}, 'Tasks', 0, ${System.currentTimeMillis()})"
+
+        private fun seedStatSql(tag: StatTag): String =
+            "INSERT INTO stats (tag, level, currentXp) VALUES ('${tag.name}', 1, 0)"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -260,6 +268,33 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS stats (
+                        tag TEXT NOT NULL PRIMARY KEY,
+                        level INTEGER NOT NULL,
+                        currentXp INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS xp_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        statTag TEXT NOT NULL,
+                        amount INTEGER NOT NULL,
+                        source TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                StatTag.entries.forEach { db.execSQL(seedStatSql(it)) }
+                db.execSQL("ALTER TABLE water_logs ADD COLUMN xpGranted INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -272,13 +307,14 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
-                            // Fresh installs skip MIGRATION_2_3, so seed here instead.
+                            // Fresh installs skip MIGRATION_2_3 and MIGRATION_9_10, so seed here instead.
                             db.execSQL(seedDefaultListSql())
+                            StatTag.entries.forEach { db.execSQL(seedStatSql(it)) }
                         }
                     })
                     .build()

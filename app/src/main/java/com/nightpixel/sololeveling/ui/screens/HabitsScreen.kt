@@ -57,6 +57,7 @@ import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.StatTag
+import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
@@ -75,6 +76,7 @@ fun HabitsScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val habitDao = remember { app.database.habitDao() }
+    val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
 
     val habits by habitDao.observeHabitsWithLogs().collectAsState(initial = emptyList())
@@ -118,7 +120,7 @@ fun HabitsScreen() {
                         HabitRow(
                             habitWithLogs = habitWithLogs,
                             today = today,
-                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, scope) },
+                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, xpEngine, scope) },
                             onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
                         )
                     }
@@ -129,7 +131,7 @@ fun HabitsScreen() {
                         HabitRow(
                             habitWithLogs = habitWithLogs,
                             today = today,
-                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, scope) },
+                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, xpEngine, scope) },
                             onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
                         )
                     }
@@ -153,16 +155,18 @@ private fun toggleToday(
     habitWithLogs: HabitWithLogs,
     today: LocalDate,
     habitDao: HabitDao,
+    xpEngine: XpEngine,
     scope: CoroutineScope
 ) {
-    val habitId = habitWithLogs.habit.id
+    val habit = habitWithLogs.habit
     val todayStr = today.toString()
     val doneToday = habitWithLogs.logs.any { it.date == todayStr && it.done }
     scope.launch {
         if (doneToday) {
-            habitDao.deleteLog(habitId, todayStr)
+            habitDao.deleteLog(habit.id, todayStr)
         } else {
-            habitDao.upsertLog(HabitLog(habitId = habitId, date = todayStr))
+            habitDao.upsertLog(HabitLog(habitId = habit.id, date = todayStr))
+            xpEngine.grant(habit.statTag, 10, "Habit: ${habit.title}")
         }
     }
 }
