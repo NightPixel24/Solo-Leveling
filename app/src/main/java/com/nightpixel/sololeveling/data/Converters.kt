@@ -2,6 +2,8 @@ package com.nightpixel.sololeveling.data
 
 import androidx.room.TypeConverter
 import com.nightpixel.sololeveling.data.entity.ExerciseType
+import com.nightpixel.sololeveling.data.entity.GoalStatus
+import com.nightpixel.sololeveling.data.entity.GoalTier
 import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.MoodColor
 import com.nightpixel.sololeveling.data.entity.Priority
@@ -37,4 +39,16 @@ class Converters {
 
     @TypeConverter
     fun toMoodColor(value: String): MoodColor = MoodColor.valueOf(value)
+
+    @TypeConverter
+    fun fromGoalTier(tier: GoalTier): String = tier.name
+
+    @TypeConverter
+    fun toGoalTier(value: String): GoalTier = GoalTier.valueOf(value)
+
+    @TypeConverter
+    fun fromGoalStatus(status: GoalStatus): String = status.name
+
+    @TypeConverter
+    fun toGoalStatus(value: String): GoalStatus = GoalStatus.valueOf(value)
 }

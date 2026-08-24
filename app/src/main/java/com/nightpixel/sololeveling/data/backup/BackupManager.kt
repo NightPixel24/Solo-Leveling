@@ -34,7 +34,8 @@ class BackupManager(private val database: AppDatabase) {
             calendarEvents = database.calendarDao().getAllEventsOnce(),
             moodEntries = database.moodDao().getAllOnce(),
             foodLogEntries = database.foodDao().getAllOnce(),
-            waterLogs = database.waterDao().getAllOnce()
+            waterLogs = database.waterDao().getAllOnce(),
+            goals = database.goalDao().getAllOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -63,6 +64,7 @@ class BackupManager(private val database: AppDatabase) {
             database.moodDao().replaceAll(backup.moodEntries)
             database.foodDao().replaceAll(backup.foodLogEntries)
             database.waterDao().replaceAll(backup.waterLogs)
+            database.goalDao().replaceAll(backup.goals)
         }
     }
 }

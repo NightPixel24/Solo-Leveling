@@ -110,7 +110,37 @@ Verified on-device (`SoloLeveling_Pixel6` emulator): v7->v8 migration ran clean 
 real photo via the emulator's camera app, confirm dialog showed the photo and saved with a
 description, entry appeared correctly under a "Today" header with thumbnail/description/timestamp;
 final `adb logcat` sweep across the whole session showed no crashes.
-Next up: **Phase 9** — Life Goals module (tiers, status tracking), per spec Section 10.
+**Phase 9 done**: Life Goals module (`ui/screens/GoalsScreen.kt`). Goals are grouped under the
+seven spec Section 4.7 tiers (1-Month through Lifetime), each with a title, description, optional
+target date, status (Active/Completed/Failed), and optionally-linked existing Tasks as milestones -
+a card shows "X/Y linked tasks done" with a progress bar computed from those tasks' `isDone` state.
+Habit-linking (spec also mentions it) is deferred - Task already exposes a clean done/not-done
+signal to build progress from, and adding Habit's streak-based semantics into the same UI would
+roughly double this phase's scope for a feature that isn't blocking anything downstream yet.
+Backed by `Goal` (schema v9, `AppDatabase.MIGRATION_8_9`), a new table with no FK needs; `tier` and
+`status` are stored as enum columns via explicit `Converters.kt` entries (this codebase's established
+pattern - Room's implicit enum-to-String magic is never relied on here). `linkedTaskIds` is a
+comma-separated `Task.id` string rather than a join table or a TypeConverter-backed `List<Long>` -
+same no-FK, no-extra-machinery reasoning as `Task.listId`. Reached from a flag icon on the
+Dashboard's top bar (next to Settings) rather than a Rank badge - spec Section 4.7 says "tap the
+Rank badge," but that badge doesn't exist until the gamification core (Phase 10) and Rank engine
+(Phase 11) are built; the flag is a stand-in wired to the same `Routes.GOALS` destination so no
+navigation code needs to change once the real badge lands.
+**Fixed a real bug found on-device**: the edit dialog's three status chips (Active/Completed/Failed)
+sat in a plain `Row`, and "Failed" wrapped its label onto two lines ("FAIL"/"ED") because the row ran
+out of width - same class of overflow bug as Phase 4's stat-tag chips and Phase 7's heatmap row. Fix:
+switched to `FlowRow` (matching the tier chips above it) and swapped the raw `GoalStatus.name` for a
+title-cased label function shared with the status chip shown on each goal card.
+Verified on-device (`SoloLeveling_Pixel6` emulator, upgrading an existing v8 install so the real
+v8->v9 migration path ran): migration completed with no crash; added a goal ("Run 5K", 1-Month tier)
+with an existing Task linked, saved, and confirmed the card showed "1/1 linked tasks done" with a
+full progress bar (the linked task was already marked done); edited the same goal, moved it to the
+Yearly tier and changed status to Completed, saved, and confirmed it re-grouped under a new "Yearly"
+header with a green "Completed" label; deleted the goal via the edit dialog's Delete button and
+confirmed the list returned to its empty state; a final `adb logcat` sweep across the whole session
+showed no crashes.
+Next up: **Phase 10** — Gamification core: Stat engine (STR/VIT/DISCIPLINE/INT/AGILITY),
+XP/leveling, radar chart, per spec Section 10.
 
 ## Locked-in decisions
 

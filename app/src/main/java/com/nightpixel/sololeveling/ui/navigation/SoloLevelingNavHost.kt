@@ -30,7 +30,10 @@ fun SoloLevelingApp(navController: NavHostController = rememberNavController()) 
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(BottomNavDestination.Dashboard.route) {
-                DashboardScreen(onSettingsClick = { navController.navigate(Routes.SETTINGS) })
+                DashboardScreen(
+                    onSettingsClick = { navController.navigate(Routes.SETTINGS) },
+                    onGoalsClick = { navController.navigate(Routes.GOALS) }
+                )
             }
             composable(BottomNavDestination.Calendar.route) { CalendarScreen() }
             composable(BottomNavDestination.Tasks.route) { TasksScreen() }

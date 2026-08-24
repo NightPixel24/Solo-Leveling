@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -17,15 +18,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
 /** The Status Window (spec Section 6) - Settings, including Export/Import, is
- * reached from here rather than the bottom nav (spec Section 8). */
+ * reached from here rather than the bottom nav (spec Section 8). The flag icon is
+ * a stand-in for the spec's Rank badge (tapping it also opens Life Goals) until
+ * the gamification core (Phase 10/15) actually builds that badge. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(onSettingsClick: () -> Unit) {
+fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Dashboard") },
                 actions = {
+                    IconButton(onClick = onGoalsClick) {
+                        Icon(Icons.Filled.Flag, contentDescription = "Life Goals")
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }

@@ -38,6 +38,3 @@ fun PlaceholderScreen(title: String) {
 
 @Composable
 fun RewardsScreen() = PlaceholderScreen("Rewards")
-
-@Composable
-fun GoalsScreen() = PlaceholderScreen("Life Goals & Rank")
