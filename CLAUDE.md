@@ -450,6 +450,10 @@ This closes spec Section 10's build order - all 17 phases are now done.
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
+- Versioning: `versionName` follows semver (`MAJOR.MINOR.PATCH`) - bumped to `1.0.0` once all 17
+  spec Section 10 phases landed (0.x.x meant "still incomplete" beforehand); MINOR for a new
+  feature, PATCH for a bug fix, going forward. `versionCode` is a plain incrementing integer bumped
+  alongside it. Both live in `app/build.gradle.kts` and `versionName` is user-visible in Settings.
 - minSdk 26, targetSdk/compileSdk 35
 - AGP 8.7.2, Kotlin 2.0.21, Gradle 8.9 (wrapper), Room 2.6.1 via KSP (not kapt)
 - kotlinx.serialization (not manual `org.json`) for the backup JSON — scales better as more
