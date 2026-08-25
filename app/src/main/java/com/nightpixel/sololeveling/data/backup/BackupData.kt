@@ -10,6 +10,8 @@ import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.MoodEntry
+import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
+import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
@@ -42,5 +44,7 @@ data class BackupData(
     val goals: List<Goal> = emptyList(),
     val stats: List<Stat> = emptyList(),
     val xpLogs: List<XpLog> = emptyList(),
-    val bosses: List<Boss> = emptyList()
+    val bosses: List<Boss> = emptyList(),
+    val punishmentPoolItems: List<PunishmentPoolItem> = emptyList(),
+    val punishmentAssignments: List<PunishmentAssignment> = emptyList()
 )

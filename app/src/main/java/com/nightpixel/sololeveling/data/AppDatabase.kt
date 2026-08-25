@@ -15,6 +15,7 @@ import com.nightpixel.sololeveling.data.dao.GoalDao
 import com.nightpixel.sololeveling.data.dao.GymDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.dao.MoodDao
+import com.nightpixel.sololeveling.data.dao.PunishmentDao
 import com.nightpixel.sololeveling.data.dao.StatDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
@@ -29,6 +30,8 @@ import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.MoodEntry
+import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
+import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Subtask
@@ -47,9 +50,10 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         AppMeta::class, Task::class, Subtask::class, TaskList::class,
         Habit::class, HabitLog::class, Exercise::class, GymSession::class,
         CalendarEventCache::class, MoodEntry::class, FoodLogEntry::class, WaterLog::class,
-        Goal::class, Stat::class, XpLog::class, Boss::class
+        Goal::class, Stat::class, XpLog::class, Boss::class,
+        PunishmentPoolItem::class, PunishmentAssignment::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -66,9 +70,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun goalDao(): GoalDao
     abstract fun statDao(): StatDao
     abstract fun bossDao(): BossDao
+    abstract fun punishmentDao(): PunishmentDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 11
+        const val CURRENT_SCHEMA_VERSION = 12
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
@@ -318,6 +323,36 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS punishment_pool_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        description TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS punishment_assignments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        itemId INTEGER NOT NULL,
+                        sourceRef TEXT NOT NULL,
+                        dateAssigned TEXT NOT NULL,
+                        resolved INTEGER NOT NULL,
+                        resolvedAt INTEGER,
+                        FOREIGN KEY(itemId) REFERENCES punishment_pool_items(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_punishment_assignments_itemId ON punishment_assignments(itemId)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_punishment_assignments_sourceRef ON punishment_assignments(sourceRef)")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -330,7 +365,8 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
+                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                        MIGRATION_11_12
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

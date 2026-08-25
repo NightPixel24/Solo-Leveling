@@ -7,6 +7,7 @@ import com.nightpixel.sololeveling.data.entity.GoalTier
 import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.MoodColor
 import com.nightpixel.sololeveling.data.entity.Priority
+import com.nightpixel.sololeveling.data.entity.PunishmentSeverity
 import com.nightpixel.sololeveling.data.entity.StatTag
 
 class Converters {
@@ -51,4 +52,10 @@ class Converters {
 
     @TypeConverter
     fun toGoalStatus(value: String): GoalStatus = GoalStatus.valueOf(value)
+
+    @TypeConverter
+    fun fromPunishmentSeverity(severity: PunishmentSeverity): String = severity.name
+
+    @TypeConverter
+    fun toPunishmentSeverity(value: String): PunishmentSeverity = PunishmentSeverity.valueOf(value)
 }

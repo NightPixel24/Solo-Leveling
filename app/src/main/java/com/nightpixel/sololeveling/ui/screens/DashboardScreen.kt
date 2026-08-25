@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
@@ -57,10 +58,12 @@ import java.time.LocalDate
  * Quests.kt` and `Boss.kt`'s doc comments for why). Mood heatmap preview, quick-add buttons, Life
  * Goals summary, and the Analytics tab are still Phase 15 ("Dashboard/Analytics screen tying
  * everything together"). Settings, including Export/Import, is reached from here rather than the
- * bottom nav (spec Section 8). Life Goals is reached by tapping the Rank badge (spec Section 8). */
+ * bottom nav (spec Section 8). Life Goals is reached by tapping the Rank badge (spec Section 8).
+ * The gavel icon opens the spec Section 5.6 Punishment Pool, which - like Goals/Settings - has no
+ * assigned bottom-nav slot either. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
+fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit, onPunishmentsClick: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val statDao = remember { app.database.statDao() }
@@ -119,6 +122,9 @@ fun DashboardScreen(onSettingsClick: () -> Unit, onGoalsClick: () -> Unit) {
             TopAppBar(
                 title = { Text("Dashboard") },
                 actions = {
+                    IconButton(onClick = onPunishmentsClick) {
+                        Icon(Icons.Filled.Gavel, contentDescription = "Punishment Pool")
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }

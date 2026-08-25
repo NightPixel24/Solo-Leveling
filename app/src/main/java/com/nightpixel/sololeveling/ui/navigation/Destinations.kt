@@ -29,4 +29,5 @@ enum class BottomNavDestination(
 object Routes {
     const val SETTINGS = "settings"
     const val GOALS = "goals"
+    const val PUNISHMENTS = "punishments"
 }

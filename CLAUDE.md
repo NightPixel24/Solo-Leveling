@@ -258,7 +258,33 @@ existing 100kg PR and a 65kg target and confirmed it showed "Defeated!" immediat
 granted; deleted it via the newly-added always-visible delete button and confirmed the boss list
 and Dashboard's Active Boss Fights section both updated correctly; a final `adb logcat` sweep across
 the whole session showed no crashes.
-Next up: **Phase 13** — Punishment Pool, per spec Section 10.
+**Phase 13 done**: Punishment Pool (`ui/screens/PunishmentScreen.kt`, reached from a new gavel icon
+on the Dashboard's top bar - no assigned bottom-nav slot, same as Goals/Settings). You define
+`PunishmentPoolItem`s (description + Minor/Major severity, spec Section 5.6). Auto-assignment is a
+live scan (`data/gamification/Punishments.kt`'s `detectMissedItems`) that runs once when the
+Punishment Pool screen opens rather than via a background job (that's Phase 16): it checks only the
+most recently completed day (yesterday, for missed daily habits/scheduled gym days -> Minor) and
+week (last Mon-Sun, for missed weekly-habit targets or an incomplete "all scheduled gym days" week
+-> Major), the same bounded "don't retroactively backfill" approach Quests (Phase 12) uses.
+`PunishmentAssignment` carries a `sourceRef` (not in the spec's own field list, e.g.
+"habit-daily:3:2026-08-24") with a unique DB index, so `PunishmentDao.insertAssignment` uses
+`OnConflictStrategy.IGNORE` - re-scanning the same miss on every screen visit is always safe and
+never creates a duplicate debt. Schema v11->v12 (`AppDatabase.MIGRATION_11_12`) adds
+`punishment_pool_items` and `punishment_assignments` (FK+cascade to the pool item), both wired into
+the JSON backup. Resolving a debt ("Clear") just sets `resolved=true`/`resolvedAt`; nothing reverses
+the miss itself, matching the one-directional pattern XP grants already established. No bugs found
+this phase.
+Verified on-device (`SoloLeveling_Pixel6` emulator, upgrading an existing v11 install so the real
+v11->v12 migration ran): migration succeeded with no crash; added a Minor ("50 pushups") and a
+Major ("Cold shower") pool item; opening the screen against this device's real habit/gym history
+correctly auto-assigned one Minor debt (a missed daily habit yesterday) and two separate Major
+debts (a missed weekly-habit target and an incomplete gym week, both independently drawing the
+pool's only Major item) with the correct assigned dates; resolved the Minor debt via "Clear" and
+confirmed it dropped out of Active Debts; reopened the screen again and confirmed the scan is
+idempotent - no duplicate debts were created for the same already-recorded misses; a final `adb
+logcat` sweep showed no crashes.
+Next up: **Phase 14** — Reward Economy (Gold ledger, weekly/monthly redemption), per spec
+Section 10.
 
 ## Locked-in decisions
 

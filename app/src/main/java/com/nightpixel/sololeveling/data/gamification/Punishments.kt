@@ -1,0 +1,64 @@
+package com.nightpixel.sololeveling.data.gamification
+
+import com.nightpixel.sololeveling.data.entity.ExerciseWithSessions
+import com.nightpixel.sololeveling.data.entity.HabitFrequency
+import com.nightpixel.sololeveling.data.entity.HabitWithLogs
+import com.nightpixel.sololeveling.data.entity.PunishmentSeverity
+import java.time.DayOfWeek
+import java.time.LocalDate
+
+data class MissedItem(val sourceRef: String, val severity: PunishmentSeverity, val date: LocalDate)
+
+/** Spec Section 5.6 - missing a daily habit or scheduled gym day assigns a Minor punishment;
+ * missing a whole week's target for a habit/gym assigns a Major one. No background job exists
+ * (that's Phase 16), so this only looks at the most recently completed day (yesterday) and week
+ * (last Mon-Sun) rather than retroactively backfilling every day the app wasn't opened - the same
+ * "keep it bounded" approach Quests (Phase 12) uses for its own auto-generation. Each [MissedItem]
+ * carries a stable [MissedItem.sourceRef] so the caller's dedup (a unique DB index, see
+ * `PunishmentAssignment`) makes repeat scans of the same miss a no-op. */
+fun detectMissedItems(
+    today: LocalDate,
+    habitsWithLogs: List<HabitWithLogs>,
+    exercisesWithSessions: List<ExerciseWithSessions>
+): List<MissedItem> {
+    val missed = mutableListOf<MissedItem>()
+
+    val yesterday = today.minusDays(1)
+    val yesterdayStr = yesterday.toString()
+
+    habitsWithLogs.filter { it.habit.frequency == HabitFrequency.DAILY }.forEach { hwl ->
+        val done = hwl.logs.any { it.date == yesterdayStr && it.done }
+        if (!done) {
+            missed += MissedItem("habit-daily:${hwl.habit.id}:$yesterdayStr", PunishmentSeverity.MINOR, yesterday)
+        }
+    }
+
+    exercisesWithSessions.filter { it.exercise.dayOfWeek == yesterday.dayOfWeek.value }.forEach { ews ->
+        val done = ews.sessions.any { it.date == yesterdayStr }
+        if (!done) {
+            missed += MissedItem("gym-day:${ews.exercise.id}:$yesterdayStr", PunishmentSeverity.MINOR, yesterday)
+        }
+    }
+
+    val lastWeekStart = today.with(DayOfWeek.MONDAY).minusWeeks(1)
+    val lastWeekStartStr = lastWeekStart.toString()
+    val lastWeekDays = (0..6).map { lastWeekStart.plusDays(it.toLong()) }
+
+    habitsWithLogs.filter { it.habit.frequency == HabitFrequency.WEEKLY }.forEach { hwl ->
+        val doneCount = lastWeekDays.count { day -> hwl.logs.any { it.date == day.toString() && it.done } }
+        if (doneCount < hwl.habit.targetPerWeek) {
+            missed += MissedItem("habit-weekly:${hwl.habit.id}:$lastWeekStartStr", PunishmentSeverity.MAJOR, lastWeekStart)
+        }
+    }
+
+    val scheduledLastWeekDays = lastWeekDays.filter { day -> exercisesWithSessions.any { it.exercise.dayOfWeek == day.dayOfWeek.value } }
+    val allGymDaysHit = scheduledLastWeekDays.all { day ->
+        exercisesWithSessions.filter { it.exercise.dayOfWeek == day.dayOfWeek.value }
+            .all { ews -> ews.sessions.any { it.date == day.toString() } }
+    }
+    if (scheduledLastWeekDays.isNotEmpty() && !allGymDaysHit) {
+        missed += MissedItem("gym-weekly:$lastWeekStartStr", PunishmentSeverity.MAJOR, lastWeekStart)
+    }
+
+    return missed
+}
