@@ -16,6 +16,7 @@ import com.nightpixel.sololeveling.data.dao.GymDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.dao.MoodDao
 import com.nightpixel.sololeveling.data.dao.PunishmentDao
+import com.nightpixel.sololeveling.data.dao.RewardDao
 import com.nightpixel.sololeveling.data.dao.StatDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
@@ -26,12 +27,16 @@ import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
 import com.nightpixel.sololeveling.data.entity.Goal
+import com.nightpixel.sololeveling.data.entity.GoldBalance
+import com.nightpixel.sololeveling.data.entity.GoldTransaction
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
+import com.nightpixel.sololeveling.data.entity.RewardPoolItem
+import com.nightpixel.sololeveling.data.entity.RewardTarget
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Subtask
@@ -51,9 +56,10 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         Habit::class, HabitLog::class, Exercise::class, GymSession::class,
         CalendarEventCache::class, MoodEntry::class, FoodLogEntry::class, WaterLog::class,
         Goal::class, Stat::class, XpLog::class, Boss::class,
-        PunishmentPoolItem::class, PunishmentAssignment::class
+        PunishmentPoolItem::class, PunishmentAssignment::class,
+        GoldBalance::class, GoldTransaction::class, RewardPoolItem::class, RewardTarget::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -71,9 +77,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun statDao(): StatDao
     abstract fun bossDao(): BossDao
     abstract fun punishmentDao(): PunishmentDao
+    abstract fun rewardDao(): RewardDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 12
+        const val CURRENT_SCHEMA_VERSION = 13
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
@@ -353,6 +360,59 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS gold_balance (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        balance INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("INSERT INTO gold_balance (id, balance) VALUES (0, 0)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS gold_transactions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        amount INTEGER NOT NULL,
+                        source TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS reward_pool_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        title TEXT NOT NULL,
+                        cost INTEGER NOT NULL,
+                        pool TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS reward_targets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        pool TEXT NOT NULL,
+                        periodStart TEXT NOT NULL,
+                        itemId INTEGER NOT NULL,
+                        claimed INTEGER NOT NULL,
+                        claimedAt INTEGER,
+                        FOREIGN KEY(itemId) REFERENCES reward_pool_items(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reward_targets_itemId ON reward_targets(itemId)")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_reward_targets_pool_periodStart " +
+                        "ON reward_targets(pool, periodStart)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -366,14 +426,16 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                        MIGRATION_11_12
+                        MIGRATION_11_12, MIGRATION_12_13
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
-                            // Fresh installs skip MIGRATION_2_3 and MIGRATION_9_10, so seed here instead.
+                            // Fresh installs skip MIGRATION_2_3, MIGRATION_9_10 and MIGRATION_12_13,
+                            // so seed here instead.
                             db.execSQL(seedDefaultListSql())
                             StatTag.entries.forEach { db.execSQL(seedStatSql(it)) }
+                            db.execSQL("INSERT INTO gold_balance (id, balance) VALUES (0, 0)")
                         }
                     })
                     .build()

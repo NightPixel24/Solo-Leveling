@@ -24,6 +24,10 @@ interface StatDao {
     @Insert
     suspend fun insertXpLog(log: XpLog)
 
+    /** Used by the Dashboard's Analytics tab (spec Section 6) for the stat XP trend chart. */
+    @Query("SELECT * FROM xp_logs")
+    fun observeXpLogs(): Flow<List<XpLog>>
+
     @Query("SELECT * FROM stats")
     suspend fun getAllStatsOnce(): List<Stat>
 

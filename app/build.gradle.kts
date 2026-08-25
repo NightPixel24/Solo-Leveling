@@ -48,6 +48,13 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    sourceSets {
+        // Room migration tests (Phase 17) load each version's committed schema JSON as an asset
+        // via MigrationTestHelper - point androidTest at the same directory room.schemaLocation
+        // (below) already writes to, rather than duplicating the files.
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 ksp {
@@ -74,6 +81,10 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
+    // Local reminders (spec Section 7) - WorkManager over AlarmManager's exact alarms since
+    // none of these need to-the-second precision, and it's the spec's own suggested option.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // Google Sign-In (Credential Manager) + Calendar API scope authorization (spec Section 4.1).
@@ -96,4 +107,8 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // Room migration tests (Phase 17) - replays every real Migration against the actual
+    // committed schema JSON for that version, catching mistakes assembleDebug can't (Room only
+    // type-checks the Migration's SQL against its own version's schema when a test asks it to).
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
 }

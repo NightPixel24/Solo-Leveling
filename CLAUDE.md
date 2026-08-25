@@ -283,8 +283,169 @@ pool's only Major item) with the correct assigned dates; resolved the Minor debt
 confirmed it dropped out of Active Debts; reopened the screen again and confirmed the scan is
 idempotent - no duplicate debts were created for the same already-recorded misses; a final `adb
 logcat` sweep showed no crashes.
-Next up: **Phase 14** — Reward Economy (Gold ledger, weekly/monthly redemption), per spec
-Section 10.
+**Phase 14 done**: Reward Economy (`ui/screens/RewardsScreen.kt`, now the real content behind the
+"Rewards" bottom-nav tab - a `RewardsScreen()` placeholder had sat there since the tab itself was
+added). Gold mirrors XP's established shape: `GoldBalance` (single denormalized row, id fixed at 0,
+same pattern as `AppMeta`) plus `GoldTransaction` (an append-only signed ledger, `GoldBalance`/
+`GoldTransaction` ~ `Stat`/`XpLog`), both driven by a new `GoldEngine.grantFromXp(xpAmount, source)`
+- spec Section 5.7's literal "1 Gold per 10 XP" - called only from the two sources the spec names,
+"habits and gym completions": `HabitsScreen`'s daily/weekly toggle and `GymScreen`'s session-log
+call site. The Boss-defeat bonus (also in `GymScreen`) does *not* also mint Gold - it's a bonus
+reward layered on an already-Gold-granting completion, not itself "a gym completion," so making it
+double-dip felt like scope creep past what the spec states. Schema v12->v13
+(`AppDatabase.MIGRATION_12_13`) adds `gold_balance`, `gold_transactions`, `reward_pool_items`, and
+`reward_targets` (new `RewardDao`, wired into the Phase 2 backup same as every prior phase).
+`RewardPoolItem` (title/cost/pool) is the user-defined Weekly/Monthly reward pool; `RewardTarget`
+is "the one reward picked as this period's target," keyed uniquely by `(pool, periodStart)` so
+picking again for a period replaces rather than duplicates - its `claimed` flag doubles as both
+current state and, once claimed, a history row, the same dual role `PunishmentAssignment.resolved`
+already plays for Debts. Progress toward a target is Gold *earned* (not net of spends) since the
+period's start (`data/gamification/Rewards.kt`'s `goldEarnedSince`, summing positive
+`GoldTransaction` rows by date) against the target's cost; hitting it unlocks "Claim," which spends
+the cost via `GoldEngine.spend` (a negative transaction) and marks the target claimed. The Monthly
+pool stays locked until "3 of the last 4 weeks were good weeks" (spec Section 5.7) -
+`countGoodWeeksInLastN` reuses Phase 12's exact `computeWeeklyQuests` "good week" definition over
+the 4 completed weeks before the current one, rather than inventing a second one. Dashboard's
+Status Window (spec Section 6: "Rank badge, radar chart, Gold balance") now shows the live Gold
+total next to the Rank badge.
+Verified on-device (`SoloLeveling_Pixel6` emulator, upgrading an existing v12 install so the real
+v12->v13 migration ran): migration succeeded with no crash, Dashboard showed "0" Gold next to the
+Rank badge; opened Rewards (empty pools, Monthly correctly locked at "0/4 good weeks"); added a
+Weekly reward ("Movie", 1 Gold cost) and picked it as the Weekly target, showing "0/1 Gold earned
+this period"; completed a daily habit (+10 DISCIPLINE XP, +1 Gold per the 1-per-10 rate) and
+confirmed both the Dashboard's Gold total and the target's progress bar updated live to 1; tapped
+Claim and confirmed the balance dropped back to 0, the target card flipped to a green "Claimed!"
+label, and a "History" section appeared showing "Movie - Weekly - claimed 2026-08-25"; a final `adb
+logcat` sweep across the whole session showed no crashes.
+**Phase 15 done**: Dashboard/Analytics screen tying everything together. `DashboardScreen.kt` gained
+a `Home`/`Analytics` `TabRow` (matching `LifeScreen`'s established tabbed-screen shape) - `Home` is
+the prior Status Window content plus the four pieces spec Section 6 still listed: a Quick Add row,
+a Mood-this-month preview, and a Life Goals summary, with `Analytics` all-new. Everything is
+computed live from data other phases already persist (XpLog/HabitLog/GymSession/MoodEntry/Goal) -
+`data/gamification/Analytics.kt`'s five pure functions (`statXpTrends`, `habitCompletionRates`,
+`gymVolumeByWeek`, `moodDistributionForMonth`, `goodWeekHistory`) - the same "derive, don't store a
+second copy" approach Quests/Rank/Rewards already established, so this phase added no new Room
+tables or migration. `statXpTrends` plots cumulative XP *gained within* the 30-day window per stat
+rather than reconstructing each stat's all-time historical total backward from its current level -
+same shape of increasing line, without needing extra machinery to walk XpLog backward from `Stat`.
+`ui/components/LineChart.kt` is a second from-scratch Canvas composable (`RadarChart`, Phase 10, was
+the first) for the multi-series stat-trend chart; the rest of Analytics (habit completion %, gym
+weekly volume, mood distribution, good-week history) uses plain `LinearProgressIndicator`/`Row`-of-
+`Box` bars, keeping the custom-Canvas budget to the one visualization that actually needed it.
+Quick Add reuses existing screens' own logic rather than re-implementing it a second time: Habit
+un-privates `HabitsScreen.kt`'s `toggleToday`; Water adds a small shared `logWaterBottle` helper
+next to `WaterScreen.kt`'s own bottle-tap logic (same goal-default/one-time-`xpGranted` bookkeeping,
+XP only - no Gold, matching Phase 14's "habits and gym completions" scope); Food un-privates
+`FoodScreen.kt`'s `ConfirmFoodDialog`/`createPhotoFile`/`photoFileUri` so the Dashboard's camera
+button drives the exact same capture-confirm-save flow instead of a second camera integration.
+The Mood-this-month preview needed the same heatmap grid `LifeScreen`'s Mood tab already draws, so
+`MonthHeatmap` (plus `moodColorValue`/`moodTextColor`/`moodLabel`) moved out to a new shared
+`ui/components/MoodHeatmap.kt` - `LifeScreen.kt` now imports it instead of keeping its own copy.
+Tapping the preview jumps to the Life tab's Mood sub-tab; doing that safely (the Dashboard is the
+bottom-nav graph's start destination) needed the exact `popBackStack`-first fix Phase 11 added for
+the bottom nav bar itself, so that logic became a `NavHostController.navigateToBottomNav` extension
+in `BottomNavBar.kt`, used by both the bar and the Dashboard's new `onMoodClick` callback, rather
+than a second copy of the fix. Life Goals summary shows, per `GoalTier` that has one, its
+earliest-created `ACTIVE` goal (title + linked-task progress) - reasonable stand-in for "current"
+per tier since goal data has no other ordering/priority field to prefer one over another.
+**User-requested change**: the mood heatmap's "Bad" color was a plain dark gray
+(`Color(0xFF2A2A2A)`) since Phase 7; changed to `SystemRed` in `MoodHeatmap.kt` (and the Analytics
+tab's mood-distribution bar to match) so all three ratings read as distinct colors at a glance.
+Verified on-device (`SoloLeveling_Pixel6` emulator, plain `installDebug` - no schema change this
+phase): Dashboard's Home tab rendered Quick Add, Today's/Weekly Quests, the mood preview (an
+already-rated day showing green, matching `LifeScreen`'s own heatmap pixel-for-pixel since both now
+share `MonthHeatmap`), and Boss Fights/Life Goals sections correctly; tapping the mood preview
+navigated to Life's Mood tab without the Phase-11-class back-stack bug; the Analytics tab rendered
+a 5-series stat-trend line chart (STR/DISCIPLINE visibly trending up from real habit/gym history on
+this device), habit completion-% bars, an 8-week gym volume bar chart with a real "Bench Press:
+100kg" PR line, a mood distribution, and a "0/8 good weeks" row; opened the mood rating dialog and
+confirmed the "Bad" swatch and legend dot render red instead of the old gray; a final `adb logcat`
+sweep across the whole session showed no crashes.
+**Phase 16 done**: Notifications. New `notifications/` package, built on WorkManager
+(`androidx.work:work-runtime-ktx`, this phase's only new dependency) rather than AlarmManager's
+exact alarms - spec Section 7 itself offers either, and nothing here needs to-the-second
+precision. `NotificationChannels` creates one channel per category (Habits/Water/Mood/Gym/Review)
+so the user can mute/tune each independently from system settings; `Notifier.show` is the one
+place every worker calls through, checking the API 33+ `POST_NOTIFICATIONS` runtime permission
+(requested from `MainActivity.onCreate` - unconditionally, since scheduling doesn't need it, only
+actually displaying does) before building a notification whose tap target always just reopens
+`MainActivity` (deep-linking to the specific screen would need nav-arg plumbing this phase doesn't
+otherwise need, left for later polish). `ReminderScheduler.scheduleAll`, called once from
+`SoloLevelingApplication.onCreate`, wires up five workers using two different scheduling shapes
+depending on what spec Section 7 actually asks for each one:
+- **Exact-time reminders** (Mood check-in 8pm, Gym-day 8am, weekly/monthly Review 8:30pm) use a
+  self-rescheduling `OneTimeWorkRequest` chain (`scheduleDailyAt`/`millisUntilNext` in
+  `ReminderScheduling.kt`) - each worker checks its condition, shows a notification if warranted,
+  then re-enqueues itself for tomorrow's occurrence. `ReviewReminderWorker` covers both weekly
+  ("is today Sunday?") and monthly ("is today the last day of the month?") from the one daily
+  check, since `PeriodicWorkRequest` has no notion of "monthly" (months vary in length).
+- **Approximate/spaced reminders** (Habit due-today sweep every 15 min - WorkManager's periodic
+  minimum; Water reminder every 2 hours, active only 9am-9pm) use plain `PeriodicWorkRequest`s.
+  `HabitReminderWorker` deliberately sweeps *all* habits each tick rather than scheduling one
+  exact-time job per habit - that would need cancel/reschedule wiring on every habit add/edit/
+  delete, whereas a periodic sweep just picks up changes for free on its next tick, at the cost of
+  a reminder landing up to ~15 minutes late. Weekly habits are excluded from the sweep, same
+  "no specific due-today" reasoning `computeDailyQuests` (Phase 12) already established.
+`res/drawable/ic_notification.xml` is a new solid-silhouette status-bar icon reusing the launcher's
+diamond motif (the launcher's own foreground vector uses a stroke + gradient fill unsuitable for a
+notification icon, which the system tints to a flat silhouette).
+Verified on-device (`SoloLeveling_Pixel6` emulator, plain `installDebug` - no schema change this
+phase): launched the app and confirmed the `POST_NOTIFICATIONS` system permission dialog appears
+(granted it); `adb shell dumpsys jobscheduler` showed WorkManager had scheduled real jobs with
+computed delays matching every target time (~+8h45m for Gym's 8am, ~+20h45m for Mood's 8pm,
+~+21h15m for Review's 8:30pm, ~+2h for Water's periodic interval, all relative to the ~11:13pm
+test time); `adb shell cmd jobscheduler run -f` force-triggered the scheduled jobs and `adb logcat`
+confirmed `HabitReminderWorker`/`WaterReminderWorker` completed with `Result.success()` against
+real Room data with no crash; forcing `GymReminderWorker` produced a real system notification
+("Gym day - 1 exercise scheduled today") visible in the notification shade with the correct app
+name, custom diamond icon, and channel - confirming the full pipeline (permission check, channel,
+`Notifier`, real DB-backed condition) works end-to-end, not just "compiles." The other workers'
+conditions (mood already logged today, not Sunday/month-end, outside water's 9am-9pm window)
+correctly evaluated false and suppressed their notifications when forced, which is correct
+behavior, not a gap. A final `adb logcat` sweep across the whole session showed no crashes or ANRs.
+**Phase 17 done**: Polish — the closing phase per spec Section 10. Three pieces, all scoped to
+finishing what earlier phases already built rather than adding new modules:
+- **Export/Import finalized and tested**: `BackupData`/`BackupManager` already covered all 22
+  entities in `AppDatabase` (every phase since Phase 2 extended it as its own table landed), so
+  there was no gap to close in code - this phase's job was proving it. Verified end-to-end on-device
+  rather than by inspection: added a real task via the UI, exported via Settings, `pm clear`'d the
+  app (simulating a full uninstall/data-loss, a stronger test than anything prior phases had done -
+  they'd only spot-checked individual fields as each was added), reinstalled-equivalent by
+  relaunching, imported the same file back, and confirmed via both direct sqlite3 queries and the
+  live UI that the task, all 5 seeded stats, the default task list, and the gold balance all came
+  back correctly.
+- **Room migration test pass**: added `androidx.room:room-testing` and
+  `app/src/androidTest/java/.../data/MigrationTest.kt` - 13 instrumented tests using
+  `MigrationTestHelper` against the already-committed schema JSONs in `app/schemas/` (committed
+  since Phase 1 specifically for this, per a locked-in decision that had been sitting unused until
+  now): one test per adjacent version pair (1->2 through 12->13) so a broken migration's failure
+  points at the exact version pair responsible, plus a full 1->13 chain test that also opens the
+  fully-migrated database through Room's real generated DAOs (not just raw-SQL schema validation)
+  and confirms the two migration-inserted seed rows (the default task list from `MIGRATION_2_3`,
+  all 5 stats from `MIGRATION_9_10`) survived the whole chain. Needed `sourceSets { getByName
+  ("androidTest").assets.srcDir("$projectDir/schemas") }` in `build.gradle.kts` so
+  `MigrationTestHelper` can find the same JSON files `room.schemaLocation` already writes, without
+  duplicating them. All 13 pass on-device.
+- **Settings screen**: already met the spec's literal requirement (reachable from Dashboard,
+  contains Export/Import) since Phase 2; this phase rounds it out with two sections that had no
+  home yet - a "Notifications" section linking out to the system per-app notification settings
+  (`Settings.ACTION_APP_NOTIFICATION_SETTINGS`), useful now that Phase 16 actually has five
+  reminder channels a user might want to individually mute/tune, and an "About" section showing
+  the live app version via `PackageManager.getPackageInfo` rather than wiring up a `BuildConfig`
+  field just for this one string. The spec's own floated "rank-unlock-rule toggle" (Section 5.3)
+  stays deferred, unchanged from Phase 11's reasoning - it's explicitly framed there as "worth
+  deciding once you're actually using it," not a concrete requirement blocking anything.
+No bugs found this phase.
+Verified on-device (`SoloLeveling_Pixel6` emulator; plain `installDebug` - no schema change this
+phase): the full export/import round-trip described above; Settings screen rendered its three
+sections correctly (`uiautomator dump` confirmed exact text/bounds), the Notification Settings
+button opened the real system per-app notification screen, and "Solo Leveling v0.1.0" rendered from
+the live `PackageManager` call; `connectedDebugAndroidTest` ran all 13 `MigrationTest` cases against
+the real emulator with a clean `BUILD SUCCESSFUL`; a final `adb logcat` sweep across the whole
+session showed no app crashes or ANRs (one unrelated `FrameTracker` IME-animation timeout, a known
+harmless system log line, not an app error).
+
+This closes spec Section 10's build order - all 17 phases are now done.
 
 ## Locked-in decisions
 

@@ -35,6 +35,3 @@ fun PlaceholderScreen(title: String) {
         }
     }
 }
-
-@Composable
-fun RewardsScreen() = PlaceholderScreen("Rewards")

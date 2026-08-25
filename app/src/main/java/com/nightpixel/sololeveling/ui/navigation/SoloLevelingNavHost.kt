@@ -9,6 +9,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.nightpixel.sololeveling.ui.components.SoloLevelingBottomNavBar
+import com.nightpixel.sololeveling.ui.components.navigateToBottomNav
 import com.nightpixel.sololeveling.ui.screens.CalendarScreen
 import com.nightpixel.sololeveling.ui.screens.DashboardScreen
 import com.nightpixel.sololeveling.ui.screens.GoalsScreen
@@ -34,7 +35,8 @@ fun SoloLevelingApp(navController: NavHostController = rememberNavController()) 
                 DashboardScreen(
                     onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                     onGoalsClick = { navController.navigate(Routes.GOALS) },
-                    onPunishmentsClick = { navController.navigate(Routes.PUNISHMENTS) }
+                    onPunishmentsClick = { navController.navigate(Routes.PUNISHMENTS) },
+                    onMoodClick = { navController.navigateToBottomNav(BottomNavDestination.Life) }
                 )
             }
             composable(BottomNavDestination.Calendar.route) { CalendarScreen() }

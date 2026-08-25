@@ -7,14 +7,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -43,18 +41,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.entity.MoodColor
 import com.nightpixel.sololeveling.data.entity.MoodEntry
-import com.nightpixel.sololeveling.ui.theme.SystemGreen
-import com.nightpixel.sololeveling.ui.theme.SystemYellow
+import com.nightpixel.sololeveling.ui.components.MonthHeatmap
+import com.nightpixel.sololeveling.ui.components.moodColorValue
+import com.nightpixel.sololeveling.ui.components.moodLabel
 import kotlinx.coroutines.launch
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -184,74 +180,6 @@ private fun MonthNavigator(month: YearMonth, onPrevious: () -> Unit, onNext: () 
 }
 
 @Composable
-private fun MonthHeatmap(
-    month: YearMonth,
-    entriesByDate: Map<String, MoodEntry>,
-    onDayClick: (LocalDate) -> Unit
-) {
-    val firstDay = month.atDay(1)
-    val leadingBlanks = (firstDay.dayOfWeek.value - DayOfWeek.MONDAY.value + 7) % 7
-    val cells = remember(month) {
-        buildList {
-            repeat(leadingBlanks) { add(null) }
-            for (day in 1..month.lengthOfMonth()) add(month.atDay(day))
-            // Pad the trailing blanks too, not just leading - otherwise the last (partial)
-            // week's Row has fewer than 7 weighted children, so each weight(1f) cell claims
-            // a bigger share of the row width than the full weeks above it.
-            while (size % 7 != 0) add(null)
-        }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            listOf("M", "T", "W", "T", "F", "S", "S").forEach { label ->
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-        cells.chunked(7).forEach { week ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                week.forEach { date ->
-                    Box(
-                        modifier = Modifier.weight(1f).aspectRatio(1f).padding(2.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (date != null) {
-                            val entry = entriesByDate[date.toString()]
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .then(
-                                        if (entry != null) {
-                                            Modifier.background(moodColorValue(entry.color))
-                                        } else {
-                                            Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
-                                        }
-                                    )
-                                    .clickable { onDayClick(date) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "${date.dayOfMonth}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = entry?.let { moodTextColor(it.color) } ?: MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun Legend() {
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         MoodColor.entries.forEach { color ->
@@ -351,19 +279,3 @@ private fun MoodChoice(color: MoodColor, selected: Boolean, onClick: () -> Unit)
     }
 }
 
-private fun moodColorValue(color: MoodColor): Color = when (color) {
-    MoodColor.GOOD -> SystemGreen
-    MoodColor.OK -> SystemYellow
-    MoodColor.BAD -> Color(0xFF2A2A2A)
-}
-
-private fun moodTextColor(color: MoodColor): Color = when (color) {
-    MoodColor.GOOD, MoodColor.OK -> Color(0xFF1A1A1A)
-    MoodColor.BAD -> Color.White
-}
-
-private fun moodLabel(color: MoodColor): String = when (color) {
-    MoodColor.GOOD -> "Good"
-    MoodColor.OK -> "OK"
-    MoodColor.BAD -> "Bad"
-}

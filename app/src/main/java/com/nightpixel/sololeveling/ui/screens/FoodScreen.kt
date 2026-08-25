@@ -182,9 +182,11 @@ private fun FoodRow(entry: FoodLogEntry, onDelete: () -> Unit) {
     }
 }
 
+/** Not private - reused by the Dashboard's food quick-add (spec Section 6), so both places share
+ * the exact same capture-confirm-save flow instead of a second copy of it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ConfirmFoodDialog(
+fun ConfirmFoodDialog(
     photoUri: Uri,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit
@@ -228,10 +230,10 @@ private fun formatHeaderDate(date: String): String {
     }
 }
 
-private fun createPhotoFile(context: Context): File {
+fun createPhotoFile(context: Context): File {
     val dir = File(context.filesDir, "food_photos").apply { mkdirs() }
     return File(dir, "food_${System.currentTimeMillis()}.jpg")
 }
 
-private fun photoFileUri(context: Context, file: File): Uri =
+fun photoFileUri(context: Context, file: File): Uri =
     FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)

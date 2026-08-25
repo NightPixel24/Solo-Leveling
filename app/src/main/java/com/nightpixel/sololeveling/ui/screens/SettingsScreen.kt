@@ -1,5 +1,8 @@
 package com.nightpixel.sololeveling.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -80,6 +84,34 @@ fun SettingsScreen() {
             OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json")) }) {
                 Text("Import Backup")
             }
+
+            HorizontalDivider()
+
+            Text("Notifications", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Habit, water, mood, gym-day, and review reminders (spec Section 7) are " +
+                    "scheduled automatically. Mute or tune individual reminder types from the " +
+                    "system notification settings.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(onClick = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                )
+            }) {
+                Text("Notification Settings")
+            }
+
+            HorizontalDivider()
+
+            Text("About", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Solo Leveling v${appVersionName(context)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -88,3 +120,6 @@ private fun defaultBackupFileName(): String {
     val stamp = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss").format(LocalDateTime.now())
     return "solo-leveling-backup-$stamp.json"
 }
+
+private fun appVersionName(context: Context): String =
+    context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"

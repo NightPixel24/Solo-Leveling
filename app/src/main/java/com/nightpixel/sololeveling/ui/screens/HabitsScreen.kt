@@ -57,6 +57,7 @@ import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.StatTag
+import com.nightpixel.sololeveling.data.gamification.GoldEngine
 import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
@@ -78,6 +79,7 @@ fun HabitsScreen() {
     val app = context.applicationContext as SoloLevelingApplication
     val habitDao = remember { app.database.habitDao() }
     val xpEngine = remember { app.xpEngine }
+    val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
 
     val habits by habitDao.observeHabitsWithLogs().collectAsState(initial = emptyList())
@@ -121,7 +123,7 @@ fun HabitsScreen() {
                         HabitRow(
                             habitWithLogs = habitWithLogs,
                             today = today,
-                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, xpEngine, scope) },
+                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, xpEngine, goldEngine, scope) },
                             onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
                         )
                     }
@@ -132,7 +134,7 @@ fun HabitsScreen() {
                         HabitRow(
                             habitWithLogs = habitWithLogs,
                             today = today,
-                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, xpEngine, scope) },
+                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, xpEngine, goldEngine, scope) },
                             onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
                         )
                     }
@@ -152,11 +154,14 @@ fun HabitsScreen() {
     }
 }
 
-private fun toggleToday(
+/** Not private - reused by the Dashboard's habit quick-add (spec Section 6) so checking a habit
+ * off from either place grants XP/Gold identically. */
+fun toggleToday(
     habitWithLogs: HabitWithLogs,
     today: LocalDate,
     habitDao: HabitDao,
     xpEngine: XpEngine,
+    goldEngine: GoldEngine,
     scope: CoroutineScope
 ) {
     val habit = habitWithLogs.habit
@@ -167,7 +172,11 @@ private fun toggleToday(
             habitDao.deleteLog(habit.id, todayStr)
         } else {
             habitDao.upsertLog(HabitLog(habitId = habit.id, date = todayStr))
-            xpEngine.grant(habit.statTag, 10, "Habit: ${habit.title}")
+            val xpAmount = 10
+            xpEngine.grant(habit.statTag, xpAmount, "Habit: ${habit.title}")
+            // Spec Section 5.7 - "habits and gym completions grant Gold in addition to stat XP,
+            // e.g. 1 Gold per 10 XP" - derived straight from the XP just granted.
+            goldEngine.grantFromXp(xpAmount, "Habit: ${habit.title}")
         }
     }
 }

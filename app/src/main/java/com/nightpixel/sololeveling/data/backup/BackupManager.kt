@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.room.withTransaction
 import com.nightpixel.sololeveling.data.AppDatabase
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.GoldBalance
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.TaskList
@@ -42,7 +43,11 @@ class BackupManager(private val database: AppDatabase) {
             xpLogs = database.statDao().getAllXpLogsOnce(),
             bosses = database.bossDao().getAllOnce(),
             punishmentPoolItems = database.punishmentDao().getAllItemsOnce(),
-            punishmentAssignments = database.punishmentDao().getAllAssignmentsOnce()
+            punishmentAssignments = database.punishmentDao().getAllAssignmentsOnce(),
+            goldBalance = database.rewardDao().getBalanceOnce(),
+            goldTransactions = database.rewardDao().getAllTransactionsOnce(),
+            rewardPoolItems = database.rewardDao().getAllPoolItemsOnce(),
+            rewardTargets = database.rewardDao().getAllTargetsOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -78,6 +83,12 @@ class BackupManager(private val database: AppDatabase) {
             )
             database.bossDao().replaceAll(backup.bosses)
             database.punishmentDao().replaceAll(backup.punishmentPoolItems, backup.punishmentAssignments)
+            database.rewardDao().replaceAll(
+                backup.goldBalance ?: GoldBalance(),
+                backup.goldTransactions,
+                backup.rewardPoolItems,
+                backup.rewardTargets
+            )
         }
     }
 }

@@ -35,8 +35,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.data.dao.WaterDao
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.WaterLog
+import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -139,6 +141,20 @@ fun WaterScreen() {
             }
         )
     }
+}
+
+/** Not private - reused by the Dashboard's water quick-add (spec Section 6): a plain +1 to
+ * today's bottle count, sharing the same goal-default and one-time `xpGranted` bookkeeping
+ * [WaterScreen]'s own bottle taps use, rather than re-deriving that logic a second time. */
+suspend fun logWaterBottle(waterDao: WaterDao, xpEngine: XpEngine, date: String, currentLog: WaterLog?) {
+    val goal = currentLog?.goalBottles ?: waterDao.getLatestGoal() ?: 8
+    val newBottles = ((currentLog?.bottlesLogged ?: 0) + 1).coerceAtMost(goal)
+    val alreadyGranted = currentLog?.xpGranted ?: false
+    val justHitGoal = newBottles >= goal && !alreadyGranted
+    waterDao.upsertLog(
+        WaterLog(date = date, bottlesLogged = newBottles, goalBottles = goal, xpGranted = alreadyGranted || justHitGoal)
+    )
+    if (justHitGoal) xpEngine.grant(StatTag.VIT, 10, "Water goal hit")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

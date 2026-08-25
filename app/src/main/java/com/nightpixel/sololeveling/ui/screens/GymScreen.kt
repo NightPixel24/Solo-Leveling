@@ -68,6 +68,7 @@ fun GymScreen() {
     val gymDao = remember { app.database.gymDao() }
     val bossDao = remember { app.database.bossDao() }
     val xpEngine = remember { app.xpEngine }
+    val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
 
     val exercises by gymDao.observeExercisesWithSessions().collectAsState(initial = emptyList())
@@ -218,11 +219,14 @@ fun GymScreen() {
                 }
                 scope.launch {
                     gymDao.upsertSession(session.copy(exerciseId = exercise.id, date = date.toString()))
-                    xpEngine.grant(
-                        statTag,
-                        if (isPr) 40 else 15,
-                        if (isPr) "Gym PR: ${exercise.name}" else "Gym: ${exercise.name}"
-                    )
+                    val xpAmount = if (isPr) 40 else 15
+                    val source = if (isPr) "Gym PR: ${exercise.name}" else "Gym: ${exercise.name}"
+                    xpEngine.grant(statTag, xpAmount, source)
+                    // Spec Section 5.7 - "habits and gym completions grant Gold in addition to
+                    // stat XP, e.g. 1 Gold per 10 XP" - derived from the XP just granted above.
+                    // The separate boss-defeat bonus below isn't itself "a gym completion," so it
+                    // doesn't also mint Gold.
+                    goldEngine.grantFromXp(xpAmount, source)
                     newlyDefeatedBoss?.let { boss ->
                         bossDao.updateBoss(boss.copy(defeated = true, defeatedAt = System.currentTimeMillis()))
                         // Spec Section 5.5 - defeating a boss grants "a bonus reward"; no amount
