@@ -43,7 +43,6 @@ class BackupManager(private val database: AppDatabase) {
             goals = database.goalDao().getAllOnce(),
             stats = database.statDao().getAllStatsOnce(),
             xpLogs = database.statDao().getAllXpLogsOnce(),
-            bosses = database.bossDao().getAllOnce(),
             punishmentPoolItems = database.punishmentDao().getAllItemsOnce(),
             punishmentAssignments = database.punishmentDao().getAllAssignmentsOnce(),
             goldBalance = database.rewardDao().getBalanceOnce(),
@@ -103,7 +102,6 @@ class BackupManager(private val database: AppDatabase) {
                 backup.stats.ifEmpty { StatTag.entries.map { Stat(tag = it) } },
                 backup.xpLogs
             )
-            database.bossDao().replaceAll(backup.bosses)
             database.punishmentDao().replaceAll(backup.punishmentPoolItems, backup.punishmentAssignments)
             database.rewardDao().replaceAll(
                 backup.goldBalance ?: GoldBalance(),

@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
  * [sourceRef] isn't in the spec's field list but is what makes the missed-day/week scan in
  * `data/gamification/Punishments.kt` idempotent: it's a unique key like "habit-daily:3:2026-01-05"
  * so re-scanning the same miss (e.g. reopening the Punishment Pool screen) never assigns a second
- * debt for it - the same role Boss's `defeated` flag plays for "don't redo this on every check." */
+ * debt for it. */
 @Serializable
 @Entity(
     tableName = "punishment_assignments",

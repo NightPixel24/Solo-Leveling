@@ -8,7 +8,6 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nightpixel.sololeveling.data.dao.AppMetaDao
-import com.nightpixel.sololeveling.data.dao.BossDao
 import com.nightpixel.sololeveling.data.dao.CalendarDao
 import com.nightpixel.sololeveling.data.dao.FoodDao
 import com.nightpixel.sololeveling.data.dao.GoalDao
@@ -24,7 +23,6 @@ import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
 import com.nightpixel.sololeveling.data.dao.WaterDao
 import com.nightpixel.sololeveling.data.entity.AppMeta
-import com.nightpixel.sololeveling.data.entity.Boss
 import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
@@ -59,12 +57,12 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         AppMeta::class, Task::class, Subtask::class, TaskList::class,
         Habit::class, HabitLog::class, Exercise::class, GymSession::class,
         CalendarEventCache::class, MoodEntry::class, FoodLogEntry::class, WaterLog::class,
-        Goal::class, Stat::class, XpLog::class, Boss::class,
+        Goal::class, Stat::class, XpLog::class,
         PunishmentPoolItem::class, PunishmentAssignment::class,
         GoldBalance::class, GoldTransaction::class, RewardPoolItem::class, RewardTarget::class,
         PlayerProfile::class, SplitDay::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -80,14 +78,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun waterDao(): WaterDao
     abstract fun goalDao(): GoalDao
     abstract fun statDao(): StatDao
-    abstract fun bossDao(): BossDao
     abstract fun punishmentDao(): PunishmentDao
     abstract fun rewardDao(): RewardDao
     abstract fun playerProfileDao(): PlayerProfileDao
     abstract fun splitDayDao(): SplitDayDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 15
+        const val CURRENT_SCHEMA_VERSION = 16
         private const val DB_NAME = "solo_leveling.db"
 
         /** Fresh installs get a single protected "Daily" list (user feedback, 2026-08-26: "make
@@ -557,6 +554,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Boss Fights (spec Section 5.5) removed per user feedback (2026-08-26: "get rid of boss
+         * fights in the gym page") - drops the table outright rather than leaving it as dead
+         * schema, same "don't leave unused scaffolding around" approach this codebase already
+         * follows for Kotlin code. This does delete any boss data a user already had; acceptable
+         * here since the feature itself is gone, so there's nothing left for that data to serve. */
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS bosses")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -570,7 +578,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
+                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

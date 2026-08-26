@@ -147,21 +147,45 @@ class MigrationTest {
         }
     }
 
+    /** Seeds a real boss row before migrating so the drop is exercised against actual data, not
+     * just an empty table - Boss Fights removed per user feedback (2026-08-26: "get rid of boss
+     * fights in the gym page"). */
+    @Test
+    fun migrate15To16() {
+        val db = helper.createDatabase(dbName, 15)
+        db.execSQL(
+            "INSERT INTO exercises (id, name, splitDayId, type, createdAt) VALUES (1, 'Bench Press', 1, 'STRENGTH', 0)"
+        )
+        db.execSQL(
+            "INSERT INTO split_days (id, name, colorHex, orderIndex, createdAt) VALUES (1, 'Day 1', '#E5484D', 0, 0)"
+        )
+        db.execSQL(
+            "INSERT INTO bosses (id, exerciseId, name, targetWeight, defeated, createdAt) " +
+                "VALUES (1, 1, 'Bench Boss', 100.0, 0, 0)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 16, true, AppDatabase.MIGRATION_15_16)
+        migrated.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bosses'").use { cursor ->
+            assertEquals(0, cursor.count)
+        }
+    }
+
     /** The full chain a real device upgrading from the very first release runs through, plus a
      * sanity read through Room's own generated DAOs (not just raw-SQL schema validation) to
      * confirm the fully-migrated database is actually usable - the seeded rows MIGRATION_2_3,
      * MIGRATION_9_10, MIGRATION_12_13, MIGRATION_13_14 and MIGRATION_14_15 insert should have
-     * survived the whole chain, and no stats row should still carry the old 'AGILITY' tag. */
+     * survived the whole chain, no stats row should still carry the old 'AGILITY' tag, and the
+     * bosses table dropped by MIGRATION_15_16 should be gone. */
     @Test
     fun migrateAllStepsAndOpenWithRoom() {
         helper.createDatabase(dbName, 1).close()
         helper.runMigrationsAndValidate(
-            dbName, 15, true,
+            dbName, 16, true,
             AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
             AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
-            AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15
+            AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16
         )
 
         val db = Room.databaseBuilder(
@@ -174,7 +198,7 @@ class MigrationTest {
                 AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
                 AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
-                AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15
+                AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16
             )
             .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .build()

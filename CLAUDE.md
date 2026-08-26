@@ -680,6 +680,33 @@ add button; logged a food entry with no photo via the single FAB and confirmed i
 with a Healthy rating. A final `adb logcat` crash sweep showed no app crashes (only the same benign
 `FrameTracker` IME-animation timeout seen in every prior phase).
 
+**Fourth feedback pass (2026-08-26, v1.3.0 -> v1.3.1)**: two quick same-day changes.
+- **Boss Fights removed** ("get rid of boss fights in the gym page"): a full removal, not just
+  hiding the UI - `Boss` entity and `BossDao` deleted, `GymScreen`'s Boss Fights section/dialogs and
+  `DashboardScreen`'s "Active Boss Fights" section/row both gone, boss XP-grant logic stripped out
+  of `LogSessionDialog`'s confirm handler, and `BackupData`/`BackupManager` no longer carry boss
+  rows. Schema bump to v16 (`MIGRATION_15_16`) drops the `bosses` table outright rather than
+  leaving unused schema behind - matches this codebase's existing "delete dead code completely, no
+  half-removed scaffolding" stance, just applied to the DB layer too. Today's/This Week's Quests
+  and Punishments were already redefined around plain workout frequency in the prior pass (they
+  never referenced Boss directly), so this removal doesn't touch them.
+- **Dashboard reorganization**: Life Goals moved off the Rank badge and into a flag icon in the top
+  bar, grouped with Calendar/Rewards/Punishment (all four are now the same "top-bar icon, no
+  bottom-nav slot" pattern). The Rank badge's tap target was repurposed to open the stat radar
+  chart in a dialog (`RadarChartDialog`) instead - the radar chart no longer sits permanently in
+  the Home scroll ("hide the spiderchart normally"), only appearing on demand.
+Verified on the `SoloLeveling_Pixel6` emulator (real v15->v16 migration, upgrading the same test
+data used to verify the split-day rework): all 16 `connectedDebugAndroidTest` cases passed
+(including the new `migrate15To16`, which seeds a real boss row and confirms the table is gone
+post-migration via `sqlite_master`), confirmed the same way as the prior pass - directly via `adb
+logcat`'s `TestRunner: finished:`/`failed:` lines, since the Gradle task itself again reported the
+same known-flaky "Failed to receive the UTP test results" on this machine. Manual pass: Gym's
+Routine tab now goes straight from the top bar into split days with no Boss Fights section at all;
+Dashboard's top bar shows a flag icon that opens Life Goals; tapping the Rank badge opens a "Stat
+Radar" dialog with the radar chart and a Close button, and the chart is no longer visible in the
+normal Home scroll. A final `adb logcat` crash sweep showed no app crashes (only the same benign
+`FrameTracker` IME-animation timeout seen in every prior phase).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

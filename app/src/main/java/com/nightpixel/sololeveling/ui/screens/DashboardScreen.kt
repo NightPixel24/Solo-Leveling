@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -64,7 +65,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
-import com.nightpixel.sololeveling.data.entity.Boss
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.ExerciseWithSessions
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
@@ -130,9 +130,11 @@ import java.time.YearMonth
  * (XpLog/HabitLog/GymSession/MoodEntry/Goal), the same "derive, don't store a second copy"
  * approach Quests/Rank/Rewards already established - see `data/gamification/Analytics.kt`'s doc
  * comment. Settings, including Export/Import, is reached from here rather than the bottom nav
- * (spec Section 8). Life Goals is reached by tapping the Rank badge or the goals summary (spec
- * Section 8). The gavel icon opens the spec Section 5.6 Punishment Pool, which - like Goals/
- * Settings - has no assigned bottom-nav slot either. */
+ * (spec Section 8). Life Goals is reached via the flag icon in the top bar (moved off the Rank
+ * badge, user feedback 2026-08-26) or the goals summary; the Rank badge itself now opens the stat
+ * radar chart, which otherwise stays out of the everyday Home scroll. The gavel icon opens the
+ * spec Section 5.6 Punishment Pool, which - like Goals/Settings - has no assigned bottom-nav slot
+ * either. */
 private enum class DashboardTab(val label: String) { HOME("Home"), ANALYTICS("Analytics") }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,7 +158,6 @@ fun DashboardScreen(
     val moodDao = remember { app.database.moodDao() }
     val foodDao = remember { app.database.foodDao() }
     val taskDao = remember { app.database.taskDao() }
-    val bossDao = remember { app.database.bossDao() }
     val rewardDao = remember { app.database.rewardDao() }
     val playerProfileDao = remember { app.database.playerProfileDao() }
     val splitDayDao = remember { app.database.splitDayDao() }
@@ -178,6 +179,7 @@ fun DashboardScreen(
     }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showTitlePicker by remember { mutableStateOf(false) }
+    var showRadarChart by remember { mutableStateOf(false) }
 
     val today = remember { LocalDate.now() }
     val todayStr = remember(today) { today.toString() }
@@ -194,7 +196,6 @@ fun DashboardScreen(
     val moodEntries by moodDao.observeEntries().collectAsState(initial = emptyList())
     val foodEntries by foodDao.observeEntries().collectAsState(initial = emptyList())
     val allTasks by taskDao.observeAllTasks().collectAsState(initial = emptyList())
-    val bosses by bossDao.observeBosses().collectAsState(initial = emptyList())
     val goldBalance by rewardDao.observeBalance().collectAsState(initial = null)
     val xpLogs by statDao.observeXpLogs().collectAsState(initial = emptyList())
     val waterLogsByDate = remember(allWaterLogs) { allWaterLogs.associateBy { it.date } }
@@ -266,6 +267,11 @@ fun DashboardScreen(
                                 color = SystemYellow
                             )
                         }
+                        // Life Goals moved here from the Rank badge (user feedback, 2026-08-26) -
+                        // grouped with the other screens that only live behind a top-bar icon.
+                        IconButton(onClick = onGoalsClick) {
+                            Icon(Icons.Filled.Flag, contentDescription = "Life Goals")
+                        }
                         IconButton(onClick = onCalendarClick) {
                             Icon(Icons.Filled.CalendarMonth, contentDescription = "Calendar")
                         }
@@ -293,7 +299,7 @@ fun DashboardScreen(
             when (tab) {
                 DashboardTab.HOME -> DashboardHome(
                     rank = rank,
-                    onGoalsClick = onGoalsClick,
+                    onRankClick = { showRadarChart = true },
                     playerName = profile?.name ?: "Hunter",
                     equippedTitle = equippedTitle,
                     onNameClick = { showRenameDialog = true },
@@ -301,8 +307,6 @@ fun DashboardScreen(
                     orderedStats = orderedStats,
                     dailyQuests = dailyQuests,
                     weeklyQuests = weeklyQuests,
-                    bosses = bosses,
-                    exercisesWithSessions = exercisesWithSessions,
                     goals = goals,
                     allTasks = allTasks,
                     currentMonth = currentMonth,
@@ -424,12 +428,16 @@ fun DashboardScreen(
             }
         )
     }
+
+    if (showRadarChart) {
+        RadarChartDialog(orderedStats = orderedStats, onDismiss = { showRadarChart = false })
+    }
 }
 
 @Composable
 private fun DashboardHome(
     rank: RankTier,
-    onGoalsClick: () -> Unit,
+    onRankClick: () -> Unit,
     playerName: String,
     equippedTitle: Title,
     onNameClick: () -> Unit,
@@ -437,8 +445,6 @@ private fun DashboardHome(
     orderedStats: List<Stat>,
     dailyQuests: List<QuestItem>,
     weeklyQuests: WeeklyQuestResult,
-    bosses: List<Boss>,
-    exercisesWithSessions: List<ExerciseWithSessions>,
     goals: List<Goal>,
     allTasks: List<Task>,
     currentMonth: YearMonth,
@@ -471,7 +477,7 @@ private fun DashboardHome(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                RankBadge(rank = rank, onClick = onGoalsClick)
+                RankBadge(rank = rank, onClick = onRankClick)
                 Column {
                     Text(
                         playerName,
@@ -487,12 +493,6 @@ private fun DashboardHome(
                 }
             }
         }
-        item {
-            val radarValues = remember(orderedStats) {
-                orderedStats.map { it.tag.name to it.level / MAX_STAT_LEVEL.toFloat() }
-            }
-            RadarChart(values = radarValues, modifier = Modifier.fillMaxWidth())
-        }
         items(orderedStats, key = { it.tag }) { stat ->
             StatRow(stat)
         }
@@ -504,16 +504,6 @@ private fun DashboardHome(
         }
         item { SectionHeader("This Week's Quests") }
         item { WeeklyQuestCard(weeklyQuests.items, weeklyQuests.goodWeek) }
-        val activeBosses = bosses.filter { !it.defeated }
-        if (activeBosses.isNotEmpty()) {
-            item { SectionHeader("Active Boss Fights") }
-            items(activeBosses, key = { it.id }) { boss ->
-                val bestWeight = exercisesWithSessions
-                    .find { it.exercise.id == boss.exerciseId }
-                    ?.sessions?.mapNotNull { it.actualWeight }?.maxOrNull() ?: 0.0
-                DashboardBossRow(boss, bestWeight)
-            }
-        }
         item { SectionHeader("Workout Calendar") }
         item {
             Card(
@@ -901,25 +891,6 @@ private fun WeeklyQuestCard(items: List<QuestItem>, goodWeek: Boolean) {
     }
 }
 
-@Composable
-private fun DashboardBossRow(boss: Boss, currentBest: Double) {
-    val progress = if (boss.targetWeight > 0) (currentBest / boss.targetWeight).toFloat().coerceIn(0f, 1f) else 0f
-    Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(0.dp)
-            ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(boss.name, style = MaterialTheme.typography.titleMedium)
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = SystemRed)
-            Text(
-                "${cleanNumber(currentBest)}kg / ${cleanNumber(boss.targetWeight)}kg",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
 private fun cleanNumber(value: Double): String =
     if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
 
@@ -955,6 +926,26 @@ private fun StatRow(stat: Stat) {
     }
 }
 
+
+/** The radar chart used to sit permanently in the Home scroll; moved behind tapping the Rank
+ * badge instead (user feedback, 2026-08-26: "hide the spiderchart normally") - it's a detail view
+ * now, not a fixture of the everyday scroll. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RadarChartDialog(orderedStats: List<Stat>, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Stat Radar") },
+        text = {
+            val radarValues = remember(orderedStats) {
+                orderedStats.map { it.tag.name to it.level / MAX_STAT_LEVEL.toFloat() }
+            }
+            RadarChart(values = radarValues, modifier = Modifier.fillMaxWidth())
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -33,7 +33,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -57,7 +56,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
-import com.nightpixel.sololeveling.data.entity.Boss
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.ExerciseWithSessions
@@ -69,7 +67,6 @@ import com.nightpixel.sololeveling.ui.components.StatChip
 import com.nightpixel.sololeveling.ui.components.WorkoutCalendarLegend
 import com.nightpixel.sololeveling.ui.components.WorkoutMonthCalendar
 import com.nightpixel.sololeveling.ui.components.parseHexColor
-import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
 import kotlinx.coroutines.launch
@@ -85,21 +82,21 @@ private enum class GymTab(val label: String) { ROUTINE("Routine"), CALENDAR("Cal
  * the next day used to push every later exercise onto the wrong weekday header - a split with no
  * calendar day baked into the routine itself can't have that problem). The Calendar tab is the
  * derived record of which split day was actually done on which date, built live from GymSession
- * data (see `data/gamification/WorkoutCalendar.kt`) rather than a second persisted log. */
+ * data (see `data/gamification/WorkoutCalendar.kt`) rather than a second persisted log.
+ * Boss Fights (spec Section 5.5) was removed per user feedback (2026-08-26) - see
+ * `MIGRATION_15_16`'s doc comment for the data-layer side of the removal. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GymScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val gymDao = remember { app.database.gymDao() }
-    val bossDao = remember { app.database.bossDao() }
     val splitDayDao = remember { app.database.splitDayDao() }
     val xpEngine = remember { app.xpEngine }
     val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
 
     val exercises by gymDao.observeExercisesWithSessions().collectAsState(initial = emptyList())
-    val bosses by bossDao.observeBosses().collectAsState(initial = emptyList())
     val splitDays by splitDayDao.observeSplitDays().collectAsState(initial = emptyList())
 
     var tab by remember { mutableStateOf(GymTab.ROUTINE) }
@@ -107,7 +104,6 @@ fun GymScreen() {
     var editDayTarget by remember { mutableStateOf<SplitDay?>(null) }
     var deleteDayTarget by remember { mutableStateOf<SplitDay?>(null) }
     var addExerciseTargetDay by remember { mutableStateOf<SplitDay?>(null) }
-    var showAddBossDialog by remember { mutableStateOf(false) }
     var logTarget by remember { mutableStateOf<Pair<Exercise, LocalDate>?>(null) }
 
     val today = remember { LocalDate.now() }
@@ -141,7 +137,6 @@ fun GymScreen() {
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 exercises = exercises,
                 splitDays = splitDays,
-                bosses = bosses,
                 today = today,
                 onEditDay = { editDayTarget = it },
                 onDeleteDay = { deleteDayTarget = it },
@@ -153,9 +148,7 @@ fun GymScreen() {
                         logTarget = exercise to day
                     }
                 },
-                onDeleteExercise = { exercise -> scope.launch { gymDao.deleteExercise(exercise) } },
-                onAddBoss = { showAddBossDialog = true },
-                onDeleteBoss = { boss -> scope.launch { bossDao.deleteBoss(boss) } }
+                onDeleteExercise = { exercise -> scope.launch { gymDao.deleteExercise(exercise) } }
             )
             GymTab.CALENDAR -> CalendarTab(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
@@ -223,36 +216,6 @@ fun GymScreen() {
         )
     }
 
-    if (showAddBossDialog) {
-        val available = exercises
-            .filter { it.exercise.type == ExerciseType.STRENGTH }
-            .map { it.exercise }
-            .filter { ex -> bosses.none { it.exerciseId == ex.id && !it.defeated } }
-        AddBossDialog(
-            availableExercises = available,
-            onDismiss = { showAddBossDialog = false },
-            onConfirm = { boss ->
-                // A boss can be created against an exercise that already has a logged PR meeting
-                // or beating the target (e.g. setting a lower target than your current best just
-                // to log the win) - detect that up front rather than only on the next session log,
-                // since otherwise it'd sit at 0 HP forever without ever flipping to defeated.
-                val currentBest = exercises.find { it.exercise.id == boss.exerciseId }
-                    ?.sessions?.mapNotNull { it.actualWeight }?.maxOrNull() ?: 0.0
-                val alreadyDefeated = currentBest >= boss.targetWeight
-                scope.launch {
-                    bossDao.insertBoss(
-                        if (alreadyDefeated) boss.copy(defeated = true, defeatedAt = System.currentTimeMillis())
-                        else boss
-                    )
-                    if (alreadyDefeated) {
-                        xpEngine.grant(StatTag.STR, 50, "Boss defeated: ${boss.name}")
-                    }
-                }
-                showAddBossDialog = false
-            }
-        )
-    }
-
     logTarget?.let { (exercise, date) ->
         LogSessionDialog(
             exercise = exercise,
@@ -263,9 +226,6 @@ fun GymScreen() {
                 // Both exercise types feed STR now (AGILITY was dropped) - kept as its own local
                 // rather than inlined below since the PR-vs-normal amount below still branches on it.
                 val statTag = StatTag.STR
-                val newlyDefeatedBoss = session.actualWeight?.let { weight ->
-                    bosses.find { it.exerciseId == exercise.id && !it.defeated && weight >= it.targetWeight }
-                }
                 scope.launch {
                     gymDao.upsertSession(session.copy(exerciseId = exercise.id, date = date.toString()))
                     val xpAmount = if (isPr) 40 else 15
@@ -273,15 +233,7 @@ fun GymScreen() {
                     xpEngine.grant(statTag, xpAmount, source)
                     // Spec Section 5.7 - "habits and gym completions grant Gold in addition to
                     // stat XP, e.g. 1 Gold per 10 XP" - derived from the XP just granted above.
-                    // The separate boss-defeat bonus below isn't itself "a gym completion," so it
-                    // doesn't also mint Gold.
                     goldEngine.grantFromXp(xpAmount, source)
-                    newlyDefeatedBoss?.let { boss ->
-                        bossDao.updateBoss(boss.copy(defeated = true, defeatedAt = System.currentTimeMillis()))
-                        // Spec Section 5.5 - defeating a boss grants "a bonus reward"; no amount
-                        // given, so this is this app's own tuned value, same as other examples.
-                        xpEngine.grant(StatTag.STR, 50, "Boss defeated: ${boss.name}")
-                    }
                 }
                 logTarget = null
             }
@@ -294,15 +246,12 @@ private fun RoutineTab(
     modifier: Modifier,
     exercises: List<ExerciseWithSessions>,
     splitDays: List<SplitDay>,
-    bosses: List<Boss>,
     today: LocalDate,
     onEditDay: (SplitDay) -> Unit,
     onDeleteDay: (SplitDay) -> Unit,
     onAddExerciseToDay: (SplitDay) -> Unit,
     onToggleExercise: (Exercise, LocalDate, done: Boolean) -> Unit,
-    onDeleteExercise: (Exercise) -> Unit,
-    onAddBoss: () -> Unit,
-    onDeleteBoss: (Boss) -> Unit
+    onDeleteExercise: (Exercise) -> Unit
 ) {
     if (splitDays.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -319,35 +268,6 @@ private fun RoutineTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        val strengthExercises = exercises.filter { it.exercise.type == ExerciseType.STRENGTH }
-        if (strengthExercises.isNotEmpty() || bosses.isNotEmpty()) {
-            item(key = "boss-header") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SectionHeader("Boss Fights")
-                    val canAddBoss = strengthExercises.any { se ->
-                        bosses.none { it.exerciseId == se.exercise.id && !it.defeated }
-                    }
-                    IconButton(onClick = onAddBoss, enabled = canAddBoss) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add boss")
-                    }
-                }
-            }
-            items(bosses, key = { "boss-${it.id}" }) { boss ->
-                val exerciseWithSessions = strengthExercises.find { it.exercise.id == boss.exerciseId }
-                val bestWeight = exerciseWithSessions?.sessions
-                    ?.mapNotNull { it.actualWeight }?.maxOrNull() ?: 0.0
-                BossRow(
-                    boss = boss,
-                    exerciseName = exerciseWithSessions?.exercise?.name ?: "Unknown exercise",
-                    currentBest = bestWeight,
-                    onDelete = { onDeleteBoss(boss) }
-                )
-            }
-        }
         splitDays.forEach { day ->
             val dayExercises = exercises.filter { it.exercise.splitDayId == day.id }
             item(key = "header-${day.id}") {
@@ -524,8 +444,7 @@ private fun ColorSwatchPicker(selected: String, onSelect: (String) -> Unit) {
 
 /** A session is a PR if it beats every previous session logged for the same exercise - Strength
  * compares weight, Cardio/Sport compares duration (spec Section 5.2's "PR vs normal session"
- * XP split). Full Boss-Fight-style PR tracking with a running target/HP is Phase 12 scope; this
- * is just the simpler "is this the best I've logged" check needed to pick an XP amount now. */
+ * XP split). */
 private fun isPersonalRecord(exercise: Exercise, session: GymSession, previousSessions: List<GymSession>): Boolean =
     when (exercise.type) {
         ExerciseType.STRENGTH -> {
@@ -537,15 +456,6 @@ private fun isPersonalRecord(exercise: Exercise, session: GymSession, previousSe
             duration != null && previousSessions.all { (it.actualDuration ?: 0) < duration }
         }
     }
-
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-}
 
 @Composable
 private fun ExerciseRow(
@@ -579,120 +489,6 @@ private fun ExerciseRow(
             }
         }
     }
-}
-
-@Composable
-private fun BossRow(boss: Boss, exerciseName: String, currentBest: Double, onDelete: () -> Unit) {
-    val hpRemaining = (boss.targetWeight - currentBest).coerceAtLeast(0.0)
-    val progress = if (boss.targetWeight > 0) (currentBest / boss.targetWeight).toFloat().coerceIn(0f, 1f) else 0f
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(boss.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        exerciseName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (boss.defeated) {
-                    Text(
-                        "Defeated!",
-                        color = SystemGreen,
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                }
-                // Deleting a defeated boss doesn't undo its already-granted XP reward - the
-                // "permanent trophy" is that reward, not the card itself, so removing the card
-                // to declutter is always allowed.
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete boss")
-                }
-            }
-            if (!boss.defeated) {
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                Text(
-                    "${cleanNumber(currentBest)}kg / ${cleanNumber(boss.targetWeight)}kg" +
-                        " - ${cleanNumber(hpRemaining)}kg to go",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun AddBossDialog(
-    availableExercises: List<Exercise>,
-    onDismiss: () -> Unit,
-    onConfirm: (Boss) -> Unit
-) {
-    var selectedExercise by remember { mutableStateOf(availableExercises.firstOrNull()) }
-    var name by remember { mutableStateOf(selectedExercise?.let { "${it.name} Boss" } ?: "") }
-    var targetWeight by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New Boss") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Exercise:", style = MaterialTheme.typography.labelLarge)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    availableExercises.forEach { ex ->
-                        FilterChip(
-                            selected = selectedExercise?.id == ex.id,
-                            onClick = {
-                                selectedExercise = ex
-                                name = "${ex.name} Boss"
-                            },
-                            label = { Text(ex.name) }
-                        )
-                    }
-                }
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Boss name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = targetWeight,
-                    onValueChange = { targetWeight = it },
-                    label = { Text("Target weight (kg)") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val exercise = selectedExercise
-                    val weight = targetWeight.toDoubleOrNull()
-                    if (exercise != null && weight != null && weight > 0 && name.isNotBlank()) {
-                        onConfirm(Boss(exerciseId = exercise.id, name = name.trim(), targetWeight = weight))
-                    }
-                },
-                enabled = selectedExercise != null && (targetWeight.toDoubleOrNull() ?: 0.0) > 0 && name.isNotBlank()
-            ) { Text("Add") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
 }
 
 @Composable
