@@ -16,9 +16,16 @@ import java.time.ZoneId
  * with no rollover job to write. */
 data class QuestItem(val label: String, val done: Boolean)
 
-/** "Today's Quests" (spec Section 5.4): one entry per daily habit, one per gym exercise scheduled
+/** This app's own tuned weekly workout-frequency target (see [computeWeeklyQuests]'s doc comment). */
+const val GYM_WEEKLY_TARGET = 3
+
+/** "Today's Quests" (spec Section 5.4): one entry per daily habit, one for logging any workout
  * today, the water goal, tonight's mood check-in, and tasks due today. Weekly habits are excluded -
- * they don't have a specific "due today," only a weekly target, which belongs to Weekly Quests. */
+ * they don't have a specific "due today," only a weekly target, which belongs to Weekly Quests.
+ * Gym used to itemize each exercise scheduled today (matched by a fixed weekday); once exercises
+ * moved to a user-defined rotating split with no calendar day baked in (user feedback,
+ * 2026-08-26), there's no longer a way to know which exercises are "due today" - only whether a
+ * workout happened, so this collapses to a single quest. */
 fun computeDailyQuests(
     today: LocalDate,
     habitsWithLogs: List<HabitWithLogs>,
@@ -31,9 +38,11 @@ fun computeDailyQuests(
     val habitQuests = habitsWithLogs
         .filter { it.habit.frequency == HabitFrequency.DAILY }
         .map { hwl -> QuestItem(hwl.habit.title, hwl.logs.any { it.date == todayStr && it.done }) }
-    val gymQuests = exercisesWithSessions
-        .filter { it.exercise.dayOfWeek == today.dayOfWeek.value }
-        .map { ews -> QuestItem(ews.exercise.name, ews.sessions.any { it.date == todayStr }) }
+    val gymQuests = if (exercisesWithSessions.isNotEmpty()) {
+        listOf(QuestItem("Log a workout today", exercisesWithSessions.any { ews -> ews.sessions.any { it.date == todayStr } }))
+    } else {
+        emptyList()
+    }
     val waterQuest = QuestItem(
         "Hit water goal",
         waterLog != null && waterLog.bottlesLogged >= waterLog.goalBottles
@@ -51,7 +60,11 @@ data class WeeklyQuestResult(val items: List<QuestItem>, val goodWeek: Boolean)
  * the week in progress. Days before today must be fully satisfied to keep a quest "on track";
  * today itself is never counted as a miss (the day isn't over), so a quest can show as on-track
  * before you've necessarily done today's part yet. A week where all three are on track/met counts
- * as a "good week" once it's actually over - spec Section 5.7 uses that for monthly rewards. */
+ * as a "good week" once it's actually over - spec Section 5.7 uses that for monthly rewards.
+ * Gym's target used to be "complete all scheduled gym days" against a fixed weekday schedule;
+ * with a rotating split (user feedback, 2026-08-26) there's no fixed schedule left to check
+ * fidelity against, so this becomes a plain workout-frequency target instead - this app's own
+ * tuned number (3x/week), same "no spec-given amount" reasoning as other tuned XP values. */
 fun computeWeeklyQuests(
     today: LocalDate,
     weekDays: List<LocalDate>,
@@ -61,12 +74,13 @@ fun computeWeeklyQuests(
 ): WeeklyQuestResult {
     val pastDays = weekDays.filter { it.isBefore(today) }
 
-    val scheduledPastDays = pastDays.filter { day -> exercisesWithSessions.any { it.exercise.dayOfWeek == day.dayOfWeek.value } }
-    val gymDayDone = scheduledPastDays.all { day ->
-        exercisesWithSessions.filter { it.exercise.dayOfWeek == day.dayOfWeek.value }
-            .all { ews -> ews.sessions.any { it.date == day.toString() } }
+    val daysWorkedOut = weekDays.count { day ->
+        exercisesWithSessions.any { ews -> ews.sessions.any { it.date == day.toString() } }
     }
-    val gymQuest = QuestItem("Complete all scheduled gym days", gymDayDone)
+    val gymQuest = QuestItem(
+        "Work out $daysWorkedOut/${GYM_WEEKLY_TARGET} days",
+        exercisesWithSessions.isEmpty() || daysWorkedOut >= GYM_WEEKLY_TARGET
+    )
 
     val daysHitGoal = weekDays.count { day ->
         waterLogsByDate[day.toString()]?.let { it.bottlesLogged >= it.goalBottles } == true

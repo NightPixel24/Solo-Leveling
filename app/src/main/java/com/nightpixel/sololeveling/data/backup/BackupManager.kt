@@ -33,6 +33,7 @@ class BackupManager(private val database: AppDatabase) {
             subtasks = database.taskDao().getAllSubtasksOnce(),
             habits = database.habitDao().getAllHabitsOnce(),
             habitLogs = database.habitDao().getAllLogsOnce(),
+            splitDays = database.splitDayDao().getAllOnce(),
             exercises = database.gymDao().getAllExercisesOnce(),
             gymSessions = database.gymDao().getAllSessionsOnce(),
             calendarEvents = database.calendarDao().getAllEventsOnce(),
@@ -83,10 +84,15 @@ class BackupManager(private val database: AppDatabase) {
 
             database.taskListDao().clearLists()
             database.taskListDao().insertLists(
-                backup.taskLists.ifEmpty { listOf(TaskList(id = TaskList.DEFAULT_ID, name = "Tasks")) }
+                backup.taskLists.ifEmpty {
+                    listOf(TaskList(id = TaskList.DEFAULT_ID, name = "Daily", position = -1, isProtected = true))
+                }
             )
             database.taskDao().replaceAll(backup.tasks, backup.subtasks)
             database.habitDao().replaceAll(backup.habits, backup.habitLogs)
+            // Split days first - exercises FK-reference them, so they must already exist before
+            // gymDao's own replaceAll inserts exercises pointing at their ids.
+            database.splitDayDao().replaceAll(backup.splitDays)
             database.gymDao().replaceAll(backup.exercises, backup.gymSessions)
             database.calendarDao().replaceAll(backup.calendarEvents)
             database.moodDao().replaceAll(backup.moodEntries)

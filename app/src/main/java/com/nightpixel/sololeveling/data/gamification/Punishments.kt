@@ -9,13 +9,18 @@ import java.time.LocalDate
 
 data class MissedItem(val sourceRef: String, val severity: PunishmentSeverity, val date: LocalDate)
 
-/** Spec Section 5.6 - missing a daily habit or scheduled gym day assigns a Minor punishment;
- * missing a whole week's target for a habit/gym assigns a Major one. No background job exists
- * (that's Phase 16), so this only looks at the most recently completed day (yesterday) and week
- * (last Mon-Sun) rather than retroactively backfilling every day the app wasn't opened - the same
- * "keep it bounded" approach Quests (Phase 12) uses for its own auto-generation. Each [MissedItem]
- * carries a stable [MissedItem.sourceRef] so the caller's dedup (a unique DB index, see
- * `PunishmentAssignment`) makes repeat scans of the same miss a no-op. */
+/** Spec Section 5.6 - missing a daily habit assigns a Minor punishment; missing a whole week's
+ * target for a habit/gym assigns a Major one. No background job exists (that's Phase 16), so this
+ * only looks at the most recently completed day (yesterday) and week (last Mon-Sun) rather than
+ * retroactively backfilling every day the app wasn't opened - the same "keep it bounded" approach
+ * Quests (Phase 12) uses for its own auto-generation. Each [MissedItem] carries a stable
+ * [MissedItem.sourceRef] so the caller's dedup (a unique DB index, see `PunishmentAssignment`)
+ * makes repeat scans of the same miss a no-op.
+ * Gym used to also assign a Minor punishment for a missed scheduled weekday; once exercises moved
+ * to a user-defined rotating split with no calendar day baked in (user feedback, 2026-08-26),
+ * there's no "scheduled day" left to miss day-to-day - only the weekly frequency target (see
+ * [GYM_WEEKLY_TARGET]) still makes sense to hold someone to, so the per-day Minor case is dropped
+ * and only the weekly Major case remains, now measured against that same frequency target. */
 fun detectMissedItems(
     today: LocalDate,
     habitsWithLogs: List<HabitWithLogs>,
@@ -33,13 +38,6 @@ fun detectMissedItems(
         }
     }
 
-    exercisesWithSessions.filter { it.exercise.dayOfWeek == yesterday.dayOfWeek.value }.forEach { ews ->
-        val done = ews.sessions.any { it.date == yesterdayStr }
-        if (!done) {
-            missed += MissedItem("gym-day:${ews.exercise.id}:$yesterdayStr", PunishmentSeverity.MINOR, yesterday)
-        }
-    }
-
     val lastWeekStart = today.with(DayOfWeek.MONDAY).minusWeeks(1)
     val lastWeekStartStr = lastWeekStart.toString()
     val lastWeekDays = (0..6).map { lastWeekStart.plusDays(it.toLong()) }
@@ -51,13 +49,13 @@ fun detectMissedItems(
         }
     }
 
-    val scheduledLastWeekDays = lastWeekDays.filter { day -> exercisesWithSessions.any { it.exercise.dayOfWeek == day.dayOfWeek.value } }
-    val allGymDaysHit = scheduledLastWeekDays.all { day ->
-        exercisesWithSessions.filter { it.exercise.dayOfWeek == day.dayOfWeek.value }
-            .all { ews -> ews.sessions.any { it.date == day.toString() } }
-    }
-    if (scheduledLastWeekDays.isNotEmpty() && !allGymDaysHit) {
-        missed += MissedItem("gym-weekly:$lastWeekStartStr", PunishmentSeverity.MAJOR, lastWeekStart)
+    if (exercisesWithSessions.isNotEmpty()) {
+        val daysWorkedOutLastWeek = lastWeekDays.count { day ->
+            exercisesWithSessions.any { ews -> ews.sessions.any { it.date == day.toString() } }
+        }
+        if (daysWorkedOutLastWeek < GYM_WEEKLY_TARGET) {
+            missed += MissedItem("gym-weekly:$lastWeekStartStr", PunishmentSeverity.MAJOR, lastWeekStart)
+        }
     }
 
     return missed

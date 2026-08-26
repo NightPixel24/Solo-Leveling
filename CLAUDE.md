@@ -589,6 +589,97 @@ and both Water and Food a green "VIT" chip, all matching Habits' existing look e
 `adb logcat` sweep showed no crashes (one benign Play Protect `VerifyApps` scan log, not an app
 error).
 
+**Third feedback pass (2026-08-26, v1.2.0 -> v1.3.0)**: another same-day round, the biggest single
+piece being a real schema/UX rework of Gym. Schema bump to v15 (`MIGRATION_14_15`) bundles two
+unrelated-but-simultaneous changes, same "one evening, one version bump" approach prior passes used:
+- **Permanent "Daily" task list**: `TaskList` gained `isProtected: Boolean` - a protected list can't
+  be renamed or deleted (`TaskListTabRow`'s dropdown shows "Can't rename/delete Daily" instead,
+  disabled). `position = -1` keeps it sorted first regardless of how many other lists exist, making
+  it the default landing tab. The migration inserts a new "Daily" protected list *alongside*
+  whatever lists already exist rather than renaming the user's existing default list - safer, since
+  that list may have been renamed or hold data the user cares about. Fresh installs seed "Daily"
+  directly (`seedDefaultListSql()`) instead of the old "Tasks" default.
+  **Real bug caught during instrumented testing**: initially made `seedDefaultListSql()` (which now
+  inserts `isProtected`) shared between fresh-install seeding and `MIGRATION_2_3` - but
+  `MIGRATION_2_3` creates `task_lists` at its *original* 4-column v3 shape (no `isProtected` until
+  v15), so replaying that migration on-device crashed with `SQLiteException: table task_lists has
+  no column named isProtected`. Fixed by giving `MIGRATION_2_3` back its own literal insert SQL
+  matching the schema shape it actually creates. Caught by the `connectedDebugAndroidTest` suite
+  (`migrate2To3` failed), not by manual testing - exactly the kind of mistake the migration test
+  pass exists to catch.
+- **Add-subtask autofocus + Enter-to-confirm**: `AddSubtaskRow`'s field now requests focus via
+  `FocusRequester` the moment it expands (no second tap needed to start typing), and Enter
+  (`ImeAction.Done` + `KeyboardActions`) triggers the same confirm path as tapping the add icon.
+- **Stat names**: Dashboard's per-stat level-bar rows now show the full word (`statTagFullName` in
+  `StatChip.kt`: Strength/Vitality/Discipline/Intelligence/Spirituality) instead of the raw
+  `StatTag.name`; every other stat label in the app (chips, radar chart axes) stays abbreviated,
+  matching the user's explicit "abbreviate elsewhere, spell it out on the level bars" ask.
+- **Gym: fixed weekdays -> user-defined workout split**: the user's exact complaint was that missing
+  a scheduled gym weekday pushed every later exercise onto the wrong day. `Exercise.dayOfWeek`
+  (Int 1-7) is replaced by `Exercise.splitDayId`, an FK to a new `SplitDay` entity (name + `colorHex`
+  + `orderIndex`, cascades to its exercises on delete) - the user defines their own rotation ("Day 1
+  - Back and Bi", colored green; "Day 2 - Chest and Shoulders", colored orange, etc.) with no
+  calendar day baked in at all, so a missed day just shifts the rotation rather than corrupting a
+  fixed schedule. `GymScreen` gained a `Routine`/`Calendar` `TabRow` (previously a single un-tabbed
+  screen): Routine groups exercises under each split day's colored header (inline "+"/edit/delete
+  per day, with a confirm dialog before delete since it cascades); Calendar is a new month grid
+  (`WorkoutMonthCalendar`, mirroring `MonthHeatmap`'s leading/trailing-blank-padding fix but coloring
+  each day by whichever split day was logged that date) with prev/next month nav and a color legend.
+  Which split day was done on a given date is fully derived (`workoutCalendarForMonth` in
+  `data/gamification/WorkoutCalendar.kt`) from existing `GymSession`+`Exercise.splitDayId` data,
+  the same "derive, don't store a second copy" approach Rank/Quests/Rewards/Titles already
+  established - no new log table needed. The same calendar (as a read-only preview, tap-through to
+  the Gym tab) now also sits on the Dashboard's Home tab, right after Boss Fights.
+  `AddExerciseDialog` no longer has a day picker at all - it's opened per-split-day-section, so the
+  target day is already known from context; a `ColorSwatchPicker` (8-color preset palette, matching
+  `SplitDay.COLOR_PALETTE`) replaces free-form color input for split days, same "preset palette, not
+  a full picker" reasoning `FoodRating`/`MoodColor` already used for their own 3-color sets.
+  Migration rebuilds `exercises` (create-copy-drop-rename, same pattern `FoodLogEntry`'s photoUri
+  nullability change used) and creates one `SplitDay` per weekday that actually had an exercise
+  pinned to it (named after the old weekday, e.g. "Monday", colored from the same rotating palette)
+  - an empty gym routine migrates to an empty split rather than 7 blank placeholder days.
+  **Ripple into Quests/Punishments/notifications**: `computeDailyQuests`/`computeWeeklyQuests`
+  (`Quests.kt`), `detectMissedItems` (`Punishments.kt`), and `GymReminderWorker` all previously
+  matched exercises to a calendar day via the now-deleted `dayOfWeek` field to answer "was gym
+  scheduled today/this week." With no fixed schedule left to check fidelity against, these were
+  redefined around a plain workout-frequency target instead of a spec-given number: `GYM_WEEKLY_TARGET
+  = 3` (this app's own tuned value, same "no spec amount given" reasoning as other tuned XP numbers)
+  workouts/week. Today's Quests collapses gym from "one item per exercise scheduled today" to a
+  single "Log a workout today" item (no way to know which exercises are "due" without a schedule);
+  Weekly Quests' "Complete all scheduled gym days" becomes "Work out X/3 days"; Punishments drops the
+  per-day Minor case entirely (nothing "scheduled" to miss day-to-day anymore) and keeps only the
+  weekly Major case, now measured against the same 3x/week target; `GymReminderWorker`'s "gym day
+  reminder on scheduled days" becomes a gap-based reminder (fires once 2+ days have passed with no
+  workout logged) rather than firing daily now that every day is a potential workout day.
+- **Food: merged the camera FAB and pencil "log without a photo" button into one entry point** - the
+  user's exact complaint was "I dont like how theres an edit button and camera button seperate from
+  each other." `FoodScreen`'s single FAB (a generic "note+" `PostAdd` icon, not a camera) always
+  opens the same `ConfirmFoodDialog` with no photo attached; the dialog itself gained an
+  `onTakePhoto` callback - tapping an "Add a photo (optional)" prompt (or an already-attached photo,
+  to retake) launches the camera and the result populates back into the still-open dialog rather
+  than opening a second dialog. Dashboard's food quick-add keeps its "camera-first" shortcut
+  behavior (still useful as a fast path) but now reuses the same updated dialog/retake plumbing.
+- **Gold badge**: replaced the `MonetizationOn` coin icon in the Dashboard's top-bar HUD badge with
+  plain "$" text (user feedback: "makes the app look cheep and doesnt fit the theme") - same badge
+  position/styling, just no icon glyph.
+Verified on the `SoloLeveling_Pixel6` emulator (phone was disconnected mid-session; emulator used as
+fallback) - real v14->v15 migration path exercised via all 16 `connectedDebugAndroidTest` cases
+(including the new `migrate14To15`, which seeds two exercises on different weekdays and asserts the
+rebuilt `exercises` table's `splitDayId` and the generated `split_days` rows are correct), all
+passing after the `MIGRATION_2_3` fix above (confirmed via `adb logcat`'s `TestRunner: finished:` /
+`failed:` lines directly, since the Gradle task itself reported a false "Failed to receive the UTP
+test results" - a known flaky result-transport issue on Windows, not a real failure). Manual pass:
+created a "Day 1 - Back and Bi" split day (green), added a Deadlift exercise to it with no day
+picker present, logged a 100kg session and confirmed both Gym's own Calendar tab and the Dashboard's
+Workout Calendar preview immediately colored today green with the correct legend; confirmed Today's
+Quests showed "Log a workout today" checked and This Week's Quests updated live from "Work out 0/3
+days" to "1/3 days"; confirmed the Daily task list shows a lock icon and its long-press menu has
+"Can't rename Daily"/"Can't delete Daily" both disabled; added a task and confirmed a single tap on
+"+ Add subtask" both focused the field and let Enter confirm the add without touching the on-screen
+add button; logged a food entry with no photo via the single FAB and confirmed it saved correctly
+with a Healthy rating. A final `adb logcat` crash sweep showed no app crashes (only the same benign
+`FrameTracker` IME-animation timeout seen in every prior phase).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -59,7 +62,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -146,7 +152,7 @@ fun TasksScreen() {
                 onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                 onRename = { list, newName -> scope.launch { taskListDao.updateList(list.copy(name = newName)) } },
                 onDelete = { list -> scope.launch { taskListDao.deleteListCascading(list.id) } },
-                canDelete = lists.size > 1
+                canDeleteOtherLists = lists.size > 1
             )
 
             if (lists.isEmpty()) {
@@ -212,7 +218,7 @@ private fun TaskListTabRow(
     onSelect: (Int) -> Unit,
     onRename: (TaskList, String) -> Unit,
     onDelete: (TaskList) -> Unit,
-    canDelete: Boolean
+    canDeleteOtherLists: Boolean
 ) {
     var menuTarget by remember { mutableStateOf<TaskList?>(null) }
     var renameTarget by remember { mutableStateOf<TaskList?>(null) }
@@ -248,25 +254,45 @@ private fun TaskListTabRow(
                     },
                     shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
                 ) {
-                    Text(
-                        list.name,
-                        style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            list.name,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (list.isProtected) {
+                            Icon(
+                                Icons.Filled.Lock,
+                                contentDescription = "Permanent list",
+                                modifier = Modifier.padding(start = 4.dp).size(14.dp)
+                            )
+                        }
+                    }
                 }
                 DropdownMenu(
                     expanded = menuTarget?.id == list.id,
                     onDismissRequest = { menuTarget = null }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Rename") },
+                        text = { Text(if (list.isProtected) "Can't rename Daily" else "Rename") },
+                        enabled = !list.isProtected,
                         onClick = { menuTarget = null; renameTarget = list }
                     )
                     DropdownMenuItem(
-                        text = { Text(if (canDelete) "Delete list" else "Can't delete last list") },
-                        enabled = canDelete,
+                        text = {
+                            Text(
+                                when {
+                                    list.isProtected -> "Can't delete Daily"
+                                    !canDeleteOtherLists -> "Can't delete last list"
+                                    else -> "Delete list"
+                                }
+                            )
+                        },
+                        enabled = !list.isProtected && canDeleteOtherLists,
                         onClick = { menuTarget = null; onDelete(list) }
                     )
                 }
@@ -502,23 +528,33 @@ private fun TaskCard(
 private fun AddSubtaskRow(onAdd: (String) -> Unit) {
     var adding by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+
+    fun confirmAdd() {
+        if (text.isNotBlank()) {
+            onAdd(text.trim())
+            text = ""
+        }
+        adding = false
+    }
 
     if (adding) {
+        // Auto-focuses the field the moment it appears, and Enter on the keyboard confirms the
+        // same as tapping the add button (user feedback, 2026-08-26) - without either, expanding
+        // this row required an extra tap into the field before typing, and typing alone couldn't
+        // finish the add.
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
                 placeholder = { Text("Subtask title", style = MaterialTheme.typography.bodySmall) },
                 singleLine = true,
-                modifier = Modifier.weight(1f)
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { confirmAdd() }),
+                modifier = Modifier.weight(1f).focusRequester(focusRequester)
             )
-            IconButton(onClick = {
-                if (text.isNotBlank()) {
-                    onAdd(text.trim())
-                    text = ""
-                }
-                adding = false
-            }) {
+            IconButton(onClick = { confirmAdd() }) {
                 Icon(Icons.Filled.Add, contentDescription = "Confirm add subtask")
             }
         }

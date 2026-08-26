@@ -18,6 +18,7 @@ import com.nightpixel.sololeveling.data.dao.MoodDao
 import com.nightpixel.sololeveling.data.dao.PlayerProfileDao
 import com.nightpixel.sololeveling.data.dao.PunishmentDao
 import com.nightpixel.sololeveling.data.dao.RewardDao
+import com.nightpixel.sololeveling.data.dao.SplitDayDao
 import com.nightpixel.sololeveling.data.dao.StatDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
@@ -39,6 +40,7 @@ import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardTarget
+import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Subtask
@@ -60,9 +62,9 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         Goal::class, Stat::class, XpLog::class, Boss::class,
         PunishmentPoolItem::class, PunishmentAssignment::class,
         GoldBalance::class, GoldTransaction::class, RewardPoolItem::class, RewardTarget::class,
-        PlayerProfile::class
+        PlayerProfile::class, SplitDay::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -82,14 +84,20 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun punishmentDao(): PunishmentDao
     abstract fun rewardDao(): RewardDao
     abstract fun playerProfileDao(): PlayerProfileDao
+    abstract fun splitDayDao(): SplitDayDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 14
+        const val CURRENT_SCHEMA_VERSION = 15
         private const val DB_NAME = "solo_leveling.db"
 
+        /** Fresh installs get a single protected "Daily" list (user feedback, 2026-08-26: "make
+         * a 'daily' task list be permanently there and the default") - `position = -1` keeps it
+         * first no matter how many other lists get added later. Existing installs go through
+         * MIGRATION_14_15 instead, which adds a Daily list alongside whatever the user already
+         * has rather than renaming their existing list out from under them. */
         private fun seedDefaultListSql(): String =
-            "INSERT INTO task_lists (id, name, position, createdAt) " +
-                "VALUES (${TaskList.DEFAULT_ID}, 'Tasks', 0, ${System.currentTimeMillis()})"
+            "INSERT INTO task_lists (id, name, position, createdAt, isProtected) " +
+                "VALUES (${TaskList.DEFAULT_ID}, 'Daily', -1, ${System.currentTimeMillis()}, 1)"
 
         private fun seedStatSql(tag: StatTag): String =
             "INSERT INTO stats (tag, level, currentXp) VALUES ('${tag.name}', 1, 0)"
@@ -137,7 +145,14 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
-                db.execSQL(seedDefaultListSql())
+                // NOT seedDefaultListSql() - that helper also sets isProtected, a column that
+                // doesn't exist on task_lists until MIGRATION_14_15. This is the original v3
+                // table shape (id/name/position/createdAt only); the "Daily" protected list gets
+                // added later, on top of whatever this seeds, by MIGRATION_14_15 itself.
+                db.execSQL(
+                    "INSERT INTO task_lists (id, name, position, createdAt) " +
+                        "VALUES (${TaskList.DEFAULT_ID}, 'Tasks', 0, ${System.currentTimeMillis()})"
+                )
                 db.execSQL("ALTER TABLE tasks ADD COLUMN listId INTEGER NOT NULL DEFAULT ${TaskList.DEFAULT_ID}")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_tasks_listId ON tasks(listId)")
             }
@@ -463,6 +478,85 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Bundles two unrelated-but-simultaneous changes from the same round of user feedback
+         * (2026-08-26), same "one evening, one version bump" approach MIGRATION_13_14 used:
+         * (1) Tasks gets a permanent, undeletable "Daily" list - inserted alongside whatever
+         * lists already exist (never renaming the user's existing data) rather than assuming
+         * their current default list is still named "Tasks"/unedited; (2) Gym drops fixed
+         * weekday scheduling for a user-defined workout split (Day 1, Day 2, ...) - missing a
+         * day used to push every later exercise onto the wrong weekday header, which a split
+         * with no calendar day baked in can't do. `exercises` needs a real table rebuild since
+         * `dayOfWeek` is being replaced by a new FK column, `splitDayId`, not just widened. */
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE task_lists ADD COLUMN isProtected INTEGER NOT NULL DEFAULT 0")
+                db.query("SELECT COUNT(*) FROM task_lists WHERE name = 'Daily'").use { cursor ->
+                    if (cursor.moveToFirst() && cursor.getInt(0) == 0) {
+                        db.execSQL(
+                            "INSERT INTO task_lists (name, position, createdAt, isProtected) " +
+                                "VALUES ('Daily', -1, ${System.currentTimeMillis()}, 1)"
+                        )
+                    }
+                }
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS split_days (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        colorHex TEXT NOT NULL,
+                        orderIndex INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                // Only create a split day for weekdays that actually had an exercise pinned to
+                // them - an empty gym routine migrates to an empty split, same "no exercises yet"
+                // empty state GymScreen already shows, rather than 7 blank placeholder days.
+                val usedDays = mutableListOf<Int>()
+                db.query("SELECT DISTINCT dayOfWeek FROM exercises ORDER BY dayOfWeek ASC").use { cursor ->
+                    while (cursor.moveToNext()) usedDays.add(cursor.getInt(0))
+                }
+                val weekdayNames = listOf(
+                    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+                )
+                usedDays.forEachIndexed { index, day ->
+                    val name = weekdayNames.getOrElse(day - 1) { "Day $day" }
+                    val color = SplitDay.COLOR_PALETTE[index % SplitDay.COLOR_PALETTE.size]
+                    db.execSQL(
+                        "INSERT INTO split_days (id, name, colorHex, orderIndex, createdAt) " +
+                            "VALUES (${day}, '${name}', '${color}', ${index}, ${System.currentTimeMillis()})"
+                    )
+                }
+
+                db.execSQL(
+                    """
+                    CREATE TABLE exercises_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        splitDayId INTEGER NOT NULL,
+                        type TEXT NOT NULL,
+                        targetSets INTEGER,
+                        targetReps INTEGER,
+                        targetWeight REAL,
+                        targetDuration INTEGER,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(splitDayId) REFERENCES split_days(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "INSERT INTO exercises_new (id, name, splitDayId, type, targetSets, targetReps, " +
+                        "targetWeight, targetDuration, createdAt) " +
+                        "SELECT id, name, dayOfWeek, type, targetSets, targetReps, targetWeight, " +
+                        "targetDuration, createdAt FROM exercises"
+                )
+                db.execSQL("DROP TABLE exercises")
+                db.execSQL("ALTER TABLE exercises_new RENAME TO exercises")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_exercises_splitDayId ON exercises(splitDayId)")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -476,7 +570,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
+                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

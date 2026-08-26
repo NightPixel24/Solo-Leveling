@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PostAdd
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -86,8 +87,8 @@ fun FoodScreen() {
     val sortedDates = remember(grouped) { grouped.keys.sortedDescending() }
 
     var pendingPhotoFile by remember { mutableStateOf<File?>(null) }
-    var capturedPhotoFile by remember { mutableStateOf<File?>(null) }
-    var showManualEntry by remember { mutableStateOf(false) }
+    var entryPhotoFile by remember { mutableStateOf<File?>(null) }
+    var showEntryDialog by remember { mutableStateOf(false) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -95,30 +96,31 @@ fun FoodScreen() {
         val file = pendingPhotoFile
         pendingPhotoFile = null
         if (success && file != null) {
-            capturedPhotoFile = file
+            // Retaking replaces whatever photo was already attached to this entry - delete the
+            // old temp file so a retake doesn't leave an orphaned photo behind.
+            entryPhotoFile?.let { if (it != file) it.delete() }
+            entryPhotoFile = file
         } else {
             file?.delete()
         }
     }
+    fun launchCamera() {
+        val file = createPhotoFile(context)
+        pendingPhotoFile = file
+        cameraLauncher.launch(photoFileUri(context, file))
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Food") },
-                actions = {
-                    IconButton(onClick = { showManualEntry = true }) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Log without a photo")
-                    }
-                }
-            )
+            TopAppBar(title = { Text("Food") })
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                val file = createPhotoFile(context)
-                pendingPhotoFile = file
-                cameraLauncher.launch(photoFileUri(context, file))
-            }) {
-                Icon(Icons.Filled.AddAPhoto, contentDescription = "Log food with a photo")
+            // One entry point (was a camera FAB plus a separate pencil "log without a photo"
+            // button) opening the same dialog either way - the photo is now an optional step
+            // inside that dialog rather than a fork in how you start logging (user feedback,
+            // 2026-08-26: "I dont like how theres an edit button and camera button seperate").
+            FloatingActionButton(onClick = { showEntryDialog = true }) {
+                Icon(Icons.Filled.PostAdd, contentDescription = "Log food")
             }
         }
     ) { innerPadding ->
@@ -129,7 +131,7 @@ fun FoodScreen() {
             if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "No food logged yet - tap the camera to add one",
+                        "No food logged yet - tap + to add one",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -156,29 +158,20 @@ fun FoodScreen() {
         }
     }
 
-    capturedPhotoFile?.let { file ->
+    if (showEntryDialog) {
         ConfirmFoodDialog(
-            photoUri = photoFileUri(context, file),
+            photoUri = entryPhotoFile?.let { photoFileUri(context, it) },
+            onTakePhoto = { launchCamera() },
             onDismiss = {
-                file.delete()
-                capturedPhotoFile = null
+                entryPhotoFile?.delete()
+                entryPhotoFile = null
+                showEntryDialog = false
             },
             onSave = { description, rating ->
-                scope.launch {
-                    logFood(foodDao, xpEngine, photoFileUri(context, file).toString(), description, rating)
-                }
-                capturedPhotoFile = null
-            }
-        )
-    }
-
-    if (showManualEntry) {
-        ConfirmFoodDialog(
-            photoUri = null,
-            onDismiss = { showManualEntry = false },
-            onSave = { description, rating ->
-                scope.launch { logFood(foodDao, xpEngine, null, description, rating) }
-                showManualEntry = false
+                val photoUriString = entryPhotoFile?.let { photoFileUri(context, it).toString() }
+                scope.launch { logFood(foodDao, xpEngine, photoUriString, description, rating) }
+                entryPhotoFile = null
+                showEntryDialog = false
             }
         )
     }
@@ -272,12 +265,15 @@ private fun FoodRatingChipLabel(rating: FoodRating) {
 }
 
 /** Not private - reused by the Dashboard's food quick-add (spec Section 6), so both places share
- * the exact same capture/type-confirm-save flow instead of a second copy of it. `photoUri` is
- * null for the manual "log without a photo" path (user feedback, 2026-08-26). */
+ * the exact same capture/type-confirm-save flow instead of a second copy of it. The photo is an
+ * optional in-dialog step (`onTakePhoto`) rather than a fork in how logging starts (user
+ * feedback, 2026-08-26) - tapping the photo area launches the camera, and tapping an already-
+ * attached photo re-launches it to retake. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConfirmFoodDialog(
     photoUri: Uri?,
+    onTakePhoto: () -> Unit,
     onDismiss: () -> Unit,
     onSave: (description: String, rating: FoodRating) -> Unit
 ) {
@@ -292,9 +288,27 @@ fun ConfirmFoodDialog(
                     AsyncImage(
                         model = photoUri,
                         contentDescription = null,
-                        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(8.dp)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onTakePhoto),
                         contentScale = ContentScale.Crop
                     )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .clickable(onClick = onTakePhoto)
+                            .padding(vertical = 14.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.AddAPhoto, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text(" Add a photo (optional)", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
                 OutlinedTextField(
                     value = description,

@@ -14,8 +14,11 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface GymDao {
+    // No day-of-week to order by anymore - grouping/ordering by split day happens in the UI
+    // layer (join against SplitDay.orderIndex) since a plain exercise row no longer carries an
+    // inherent day order of its own.
     @Transaction
-    @Query("SELECT * FROM exercises ORDER BY dayOfWeek ASC, createdAt ASC")
+    @Query("SELECT * FROM exercises ORDER BY createdAt ASC")
     fun observeExercisesWithSessions(): Flow<List<ExerciseWithSessions>>
 
     @Insert

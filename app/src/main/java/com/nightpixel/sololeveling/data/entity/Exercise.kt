@@ -1,6 +1,8 @@
 package com.nightpixel.sololeveling.data.entity
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
 
@@ -10,15 +12,27 @@ import kotlinx.serialization.Serializable
  * (Phase 10). */
 enum class ExerciseType { STRENGTH, CARDIO_SPORT }
 
+/** Pinned to a user-defined [SplitDay] ("Day 1", "Day 2", ...) rather than a fixed weekday (user
+ * feedback, 2026-08-26) - missing a day no longer pushes the rest of the split onto the wrong
+ * calendar day, since there's no calendar day baked into the routine at all. Cascades on its
+ * split day's deletion, same as GymSession already cascades on this entity's deletion. */
 @Serializable
-@Entity(tableName = "exercises")
+@Entity(
+    tableName = "exercises",
+    foreignKeys = [
+        ForeignKey(
+            entity = SplitDay::class,
+            parentColumns = ["id"],
+            childColumns = ["splitDayId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("splitDayId")]
+)
 data class Exercise(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    /** 1=Monday..7=Sunday (java.time.DayOfWeek.value) - stored as a plain Int
-     * rather than the DayOfWeek type itself so this needs no custom Room
-     * TypeConverter or kotlinx.serialization serializer. */
-    val dayOfWeek: Int = 1,
+    val splitDayId: Long,
     val type: ExerciseType = ExerciseType.STRENGTH,
     val targetSets: Int? = null,
     val targetReps: Int? = null,

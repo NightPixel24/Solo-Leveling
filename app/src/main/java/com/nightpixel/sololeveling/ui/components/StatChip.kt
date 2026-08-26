@@ -27,6 +27,17 @@ fun statTagColor(tag: StatTag): Color = when (tag) {
     StatTag.SPIRITUALITY -> SystemYellow
 }
 
+/** Full word for the Dashboard's per-stat level bars (user feedback, 2026-08-26: "In the app have
+ * the stats be abbreviated like STR is Strength but in the dashboard level bars make the full
+ * word shown"). Everywhere else (this chip, the radar chart) keeps the short `StatTag.name`. */
+fun statTagFullName(tag: StatTag): String = when (tag) {
+    StatTag.STR -> "Strength"
+    StatTag.VIT -> "Vitality"
+    StatTag.DISCIPLINE -> "Discipline"
+    StatTag.INT -> "Intelligence"
+    StatTag.SPIRITUALITY -> "Spirituality"
+}
+
 @Composable
 fun StatChip(tag: StatTag) {
     val color = statTagColor(tag)

@@ -116,21 +116,52 @@ class MigrationTest {
         }
     }
 
+    /** Seeds two exercises on different weekdays before migrating, so the exercises table rebuild
+     * (weekday -> a real [com.nightpixel.sololeveling.data.entity.SplitDay] row) is exercised
+     * against actual data (user feedback, 2026-08-26: dropping fixed weekday scheduling for a
+     * user-defined workout split), not just an empty table. Also confirms the always-present
+     * "Daily" task list (same round of feedback) gets inserted when nothing named that exists yet. */
+    @Test
+    fun migrate14To15() {
+        val db = helper.createDatabase(dbName, 14)
+        db.execSQL(
+            "INSERT INTO exercises (id, name, dayOfWeek, type, createdAt) VALUES (1, 'Bench Press', 1, 'STRENGTH', 0)"
+        )
+        db.execSQL(
+            "INSERT INTO exercises (id, name, dayOfWeek, type, createdAt) VALUES (2, 'Squat', 3, 'STRENGTH', 0)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 15, true, AppDatabase.MIGRATION_14_15)
+
+        migrated.query("SELECT COUNT(*) FROM task_lists WHERE name = 'Daily' AND isProtected = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM split_days").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+        }
+        migrated.query("SELECT name, splitDayId FROM exercises WHERE name = 'Bench Press'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1L, cursor.getLong(1))
+        }
+    }
+
     /** The full chain a real device upgrading from the very first release runs through, plus a
      * sanity read through Room's own generated DAOs (not just raw-SQL schema validation) to
      * confirm the fully-migrated database is actually usable - the seeded rows MIGRATION_2_3,
-     * MIGRATION_9_10, MIGRATION_12_13 and MIGRATION_13_14 insert should have survived the whole
-     * chain, and no stats row should still carry the old 'AGILITY' tag. */
+     * MIGRATION_9_10, MIGRATION_12_13, MIGRATION_13_14 and MIGRATION_14_15 insert should have
+     * survived the whole chain, and no stats row should still carry the old 'AGILITY' tag. */
     @Test
     fun migrateAllStepsAndOpenWithRoom() {
         helper.createDatabase(dbName, 1).close()
         helper.runMigrationsAndValidate(
-            dbName, 14, true,
+            dbName, 15, true,
             AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
             AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
-            AppDatabase.MIGRATION_13_14
+            AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15
         )
 
         val db = Room.databaseBuilder(
@@ -143,24 +174,29 @@ class MigrationTest {
                 AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
                 AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
-                AppDatabase.MIGRATION_13_14
+                AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15
             )
             .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .build()
 
         db.openHelper.writableDatabase
-        val (taskLists, stats, profile) = runBlocking {
-            Triple(
-                db.taskListDao().getAllListsOnce(),
-                db.statDao().getAllStatsOnce(),
-                db.playerProfileDao().getOnce()
-            )
+        var taskLists = emptyList<com.nightpixel.sololeveling.data.entity.TaskList>()
+        var stats = emptyList<com.nightpixel.sololeveling.data.entity.Stat>()
+        var profileName: String? = null
+        var exercises = emptyList<com.nightpixel.sololeveling.data.entity.Exercise>()
+        runBlocking {
+            taskLists = db.taskListDao().getAllListsOnce()
+            stats = db.statDao().getAllStatsOnce()
+            profileName = db.playerProfileDao().getOnce()?.name
+            exercises = db.gymDao().getAllExercisesOnce()
         }
         db.close()
 
-        assertEquals(1, taskLists.size)
+        assertEquals(2, taskLists.size)
+        assertEquals(true, taskLists.any { it.name == "Daily" && it.isProtected })
         assertEquals(5, stats.size)
         assertEquals(true, stats.any { it.tag == StatTag.SPIRITUALITY })
-        assertEquals("Hunter", profile?.name)
+        assertEquals("Hunter", profileName)
+        assertEquals(true, exercises.isEmpty())
     }
 }

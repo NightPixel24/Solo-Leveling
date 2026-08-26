@@ -38,7 +38,8 @@ fun SoloLevelingApp(navController: NavHostController = rememberNavController()) 
                     onPunishmentsClick = { navController.navigate(Routes.PUNISHMENTS) },
                     onCalendarClick = { navController.navigate(Routes.CALENDAR) },
                     onRewardsClick = { navController.navigate(Routes.REWARDS) },
-                    onMoodClick = { navController.navigateToBottomNav(BottomNavDestination.Life) }
+                    onMoodClick = { navController.navigateToBottomNav(BottomNavDestination.Life) },
+                    onGymClick = { navController.navigateToBottomNav(BottomNavDestination.Gym) }
                 )
             }
             composable(BottomNavDestination.Tasks.route) { TasksScreen() }

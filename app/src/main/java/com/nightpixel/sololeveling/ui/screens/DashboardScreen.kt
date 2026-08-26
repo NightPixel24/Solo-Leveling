@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocalDrink
-import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Settings
@@ -76,6 +75,7 @@ import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.PlayerProfile
+import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Task
@@ -102,6 +102,7 @@ import com.nightpixel.sololeveling.data.gamification.moodDistributionForMonth
 import com.nightpixel.sololeveling.data.gamification.statXpTrends
 import com.nightpixel.sololeveling.data.gamification.titleById
 import com.nightpixel.sololeveling.data.gamification.unlockedTitles
+import com.nightpixel.sololeveling.data.gamification.workoutCalendarForMonth
 import com.nightpixel.sololeveling.data.gamification.xpForLevel
 import com.nightpixel.sololeveling.ui.components.LineChart
 import com.nightpixel.sololeveling.ui.components.LineSeries
@@ -109,7 +110,10 @@ import com.nightpixel.sololeveling.ui.components.MonthHeatmap
 import com.nightpixel.sololeveling.ui.components.RadarChart
 import com.nightpixel.sololeveling.ui.components.RankBadge
 import com.nightpixel.sololeveling.ui.components.StatChip
+import com.nightpixel.sololeveling.ui.components.WorkoutCalendarLegend
+import com.nightpixel.sololeveling.ui.components.WorkoutMonthCalendar
 import com.nightpixel.sololeveling.ui.components.statTagColor
+import com.nightpixel.sololeveling.ui.components.statTagFullName
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
@@ -139,7 +143,8 @@ fun DashboardScreen(
     onPunishmentsClick: () -> Unit,
     onCalendarClick: () -> Unit,
     onRewardsClick: () -> Unit,
-    onMoodClick: () -> Unit
+    onMoodClick: () -> Unit,
+    onGymClick: () -> Unit
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
@@ -154,6 +159,7 @@ fun DashboardScreen(
     val bossDao = remember { app.database.bossDao() }
     val rewardDao = remember { app.database.rewardDao() }
     val playerProfileDao = remember { app.database.playerProfileDao() }
+    val splitDayDao = remember { app.database.splitDayDao() }
     val xpEngine = remember { app.xpEngine }
     val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
@@ -192,6 +198,10 @@ fun DashboardScreen(
     val goldBalance by rewardDao.observeBalance().collectAsState(initial = null)
     val xpLogs by statDao.observeXpLogs().collectAsState(initial = emptyList())
     val waterLogsByDate = remember(allWaterLogs) { allWaterLogs.associateBy { it.date } }
+    val splitDays by splitDayDao.observeSplitDays().collectAsState(initial = emptyList())
+    val workoutsByDate = remember(exercisesWithSessions, splitDays, currentMonth) {
+        workoutCalendarForMonth(currentMonth, exercisesWithSessions, splitDays)
+    }
 
     val dailyQuests = remember(habitsWithLogs, exercisesWithSessions, todayWaterLog, moodEntries, allTasks, today) {
         computeDailyQuests(
@@ -221,7 +231,17 @@ fun DashboardScreen(
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val file = pendingPhotoFile
         pendingPhotoFile = null
-        if (success && file != null) capturedPhotoFile = file else file?.delete()
+        if (success && file != null) {
+            capturedPhotoFile?.let { if (it != file) it.delete() }
+            capturedPhotoFile = file
+        } else {
+            file?.delete()
+        }
+    }
+    fun launchFoodCamera() {
+        val file = createPhotoFile(context)
+        pendingPhotoFile = file
+        cameraLauncher.launch(photoFileUri(context, file))
     }
 
     Scaffold(
@@ -235,19 +255,15 @@ fun DashboardScreen(
                         // right next to the Rank badge every time the screen loaded).
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier.padding(end = 4.dp)
                         ) {
-                            Icon(
-                                Icons.Filled.MonetizationOn,
-                                contentDescription = "Gold",
-                                tint = SystemYellow,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            // Plain "$" text rather than a MonetizationOn icon (user feedback,
+                            // 2026-08-26: the coin icon "looks cheap and doesn't fit the theme") -
+                            // still styled to match the HUD-badge treatment, just no icon glyph.
                             Text(
-                                "${goldBalance?.balance ?: 0}",
+                                "$${goldBalance?.balance ?: 0}",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = SystemYellow
                             )
                         }
                         IconButton(onClick = onCalendarClick) {
@@ -292,6 +308,9 @@ fun DashboardScreen(
                     currentMonth = currentMonth,
                     moodEntriesByDate = remember(moodEntries) { moodEntries.associateBy { it.date } },
                     onMoodClick = onMoodClick,
+                    splitDays = splitDays,
+                    workoutsByDate = workoutsByDate,
+                    onGymClick = onGymClick,
                     onGoalsSummaryClick = onGoalsClick,
                     onQuickAddHabit = { showHabitPicker = true },
                     onQuickAddWater = {
@@ -305,11 +324,7 @@ fun DashboardScreen(
                             snackbarHostState.showSnackbar(message)
                         }
                     },
-                    onQuickAddFood = {
-                        val file = createPhotoFile(context)
-                        pendingPhotoFile = file
-                        cameraLauncher.launch(photoFileUri(context, file))
-                    }
+                    onQuickAddFood = { launchFoodCamera() }
                 )
                 DashboardTab.ANALYTICS -> DashboardAnalytics(
                     today = today,
@@ -371,6 +386,7 @@ fun DashboardScreen(
     capturedPhotoFile?.let { file ->
         ConfirmFoodDialog(
             photoUri = photoFileUri(context, file),
+            onTakePhoto = { launchFoodCamera() },
             onDismiss = {
                 file.delete()
                 capturedPhotoFile = null
@@ -428,6 +444,9 @@ private fun DashboardHome(
     currentMonth: YearMonth,
     moodEntriesByDate: Map<String, MoodEntry>,
     onMoodClick: () -> Unit,
+    splitDays: List<SplitDay>,
+    workoutsByDate: Map<LocalDate, SplitDay>,
+    onGymClick: () -> Unit,
     onGoalsSummaryClick: () -> Unit,
     onQuickAddHabit: () -> Unit,
     onQuickAddWater: () -> Unit,
@@ -493,6 +512,19 @@ private fun DashboardHome(
                     .find { it.exercise.id == boss.exerciseId }
                     ?.sessions?.mapNotNull { it.actualWeight }?.maxOrNull() ?: 0.0
                 DashboardBossRow(boss, bestWeight)
+            }
+        }
+        item { SectionHeader("Workout Calendar") }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onGymClick),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WorkoutMonthCalendar(month = currentMonth, workoutsByDate = workoutsByDate, onDayClick = { onGymClick() })
+                    if (splitDays.isNotEmpty()) WorkoutCalendarLegend(splitDays)
+                }
             }
         }
         item { SectionHeader("Mood This Month") }
@@ -901,7 +933,7 @@ private fun StatRow(stat: Stat) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(stat.tag.name, style = MaterialTheme.typography.titleMedium, color = color)
+            Text(statTagFullName(stat.tag), style = MaterialTheme.typography.titleMedium, color = color)
             Text(
                 if (stat.level >= MAX_STAT_LEVEL) "Lv. $MAX_STAT_LEVEL (max)" else "Lv. ${stat.level}",
                 style = MaterialTheme.typography.bodyMedium,

@@ -17,6 +17,7 @@ import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardTarget
+import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.data.entity.Task
@@ -40,6 +41,7 @@ data class BackupData(
     val subtasks: List<Subtask> = emptyList(),
     val habits: List<Habit> = emptyList(),
     val habitLogs: List<HabitLog> = emptyList(),
+    val splitDays: List<SplitDay> = emptyList(),
     val exercises: List<Exercise> = emptyList(),
     val gymSessions: List<GymSession> = emptyList(),
     val calendarEvents: List<CalendarEventCache> = emptyList(),
