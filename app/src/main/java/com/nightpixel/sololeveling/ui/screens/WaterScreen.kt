@@ -41,6 +41,7 @@ import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.WaterLog
 import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.data.gamification.applyVitalityMultiplier
+import com.nightpixel.sololeveling.ui.components.StatChip
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -104,13 +105,9 @@ fun WaterScreen() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Today's Water", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "Feeds VIT",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                StatChip(StatTag.VIT)
             }
             IconButton(onClick = { showGoalDialog = true }) {
                 Icon(Icons.Filled.Settings, contentDescription = "Set goal")

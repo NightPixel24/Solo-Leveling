@@ -578,6 +578,17 @@ sequence; bottom nav confirmed showing exactly 5 items with Home centered, and C
 confirmed reachable via their new Dashboard top-bar icons with no visual clipping despite 5 total
 icons plus the Gold badge. A final `adb logcat` sweep showed no app crashes.
 
+**Follow-up same day**: replaced the plain "Feeds STR/VIT/DISCIPLINE" text labels (Gym/Water/Food/
+Tasks) with the same colored `StatChip` pill `HabitsScreen` already used per-habit, since the user
+pointed out the two should look the same rather than one being plain text. Extracted `StatChip`
+(and the `statTagColor` mapping it and `DashboardScreen`'s stat-trend chart/legend both relied on,
+previously duplicated in each file) into a new `ui/components/StatChip.kt` - the first time this
+color mapping has lived in one place instead of two. Verified on the user's real Pixel 7 (in-place
+`installDebug`, no schema change): Gym now shows a red "STR" chip, Tasks a blue "DISCIPLINE" chip,
+and both Water and Food a green "VIT" chip, all matching Habits' existing look exactly; a final
+`adb logcat` sweep showed no crashes (one benign Play Protect `VerifyApps` scan log, not an app
+error).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

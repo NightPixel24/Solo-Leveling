@@ -68,6 +68,7 @@ import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.entity.Priority
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Subtask
+import com.nightpixel.sololeveling.ui.components.StatChip
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.TaskList
 import com.nightpixel.sololeveling.data.entity.TaskWithSubtasks
@@ -114,13 +115,9 @@ fun TasksScreen() {
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Tasks")
-                        Text(
-                            "Feeds DISCIPLINE",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        StatChip(StatTag.DISCIPLINE)
                     }
                 },
                 actions = {

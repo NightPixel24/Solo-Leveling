@@ -108,10 +108,11 @@ import com.nightpixel.sololeveling.ui.components.LineSeries
 import com.nightpixel.sololeveling.ui.components.MonthHeatmap
 import com.nightpixel.sololeveling.ui.components.RadarChart
 import com.nightpixel.sololeveling.ui.components.RankBadge
+import com.nightpixel.sololeveling.ui.components.StatChip
+import com.nightpixel.sololeveling.ui.components.statTagColor
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
-import com.nightpixel.sololeveling.ui.theme.SystemVioletBright
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
 import kotlinx.coroutines.launch
 import java.io.File
@@ -610,12 +611,12 @@ private fun DashboardAnalytics(
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LineChart(
                         series = StatTag.entries.map { tag ->
-                            LineSeries(tag.name, statColor(tag), trends[tag].orEmpty().map { it.cumulativeXp.toFloat() })
+                            LineSeries(tag.name, statTagColor(tag), trends[tag].orEmpty().map { it.cumulativeXp.toFloat() })
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        StatTag.entries.forEach { tag -> LegendDot(tag.name, statColor(tag)) }
+                        StatTag.entries.forEach { tag -> LegendDot(tag.name, statTagColor(tag)) }
                     }
                 }
             }
@@ -892,7 +893,7 @@ private fun cleanNumber(value: Double): String =
 
 @Composable
 private fun StatRow(stat: Stat) {
-    val color = statColor(stat.tag)
+    val color = statTagColor(stat.tag)
     val needed = xpForLevel(stat.level)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
@@ -922,13 +923,6 @@ private fun StatRow(stat: Stat) {
     }
 }
 
-private fun statColor(tag: StatTag) = when (tag) {
-    StatTag.STR -> SystemRed
-    StatTag.VIT -> SystemGreen
-    StatTag.DISCIPLINE -> SystemBlue
-    StatTag.INT -> SystemVioletBright
-    StatTag.SPIRITUALITY -> SystemYellow
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

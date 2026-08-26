@@ -61,10 +61,7 @@ import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.gamification.GoldEngine
 import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.data.gamification.applyVitalityMultiplier
-import com.nightpixel.sololeveling.ui.theme.SystemBlue
-import com.nightpixel.sololeveling.ui.theme.SystemGreen
-import com.nightpixel.sololeveling.ui.theme.SystemRed
-import com.nightpixel.sololeveling.ui.theme.SystemVioletBright
+import com.nightpixel.sololeveling.ui.components.StatChip
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -256,28 +253,6 @@ private fun HabitRow(
                 Icon(Icons.Filled.Delete, contentDescription = "Delete habit")
             }
         }
-    }
-}
-
-@Composable
-private fun StatChip(tag: StatTag) {
-    val color = when (tag) {
-        StatTag.STR -> SystemRed
-        StatTag.VIT -> SystemGreen
-        StatTag.DISCIPLINE -> SystemBlue
-        StatTag.INT -> SystemVioletBright
-        StatTag.SPIRITUALITY -> SystemYellow
-    }
-    Surface(
-        color = color.copy(alpha = 0.2f),
-        contentColor = color,
-        shape = MaterialTheme.shapes.small
-    ) {
-        Text(
-            tag.name,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-        )
     }
 }
 

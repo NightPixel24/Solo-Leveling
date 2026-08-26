@@ -60,6 +60,7 @@ import com.nightpixel.sololeveling.data.entity.FoodRating
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.data.gamification.applyVitalityMultiplier
+import com.nightpixel.sololeveling.ui.components.StatChip
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
@@ -122,12 +123,9 @@ fun FoodScreen() {
         }
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            Text(
-                "Feeds VIT",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                StatChip(StatTag.VIT)
+            }
             if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
