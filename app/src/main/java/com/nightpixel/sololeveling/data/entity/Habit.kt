@@ -6,9 +6,11 @@ import kotlinx.serialization.Serializable
 
 enum class HabitFrequency { DAILY, WEEKLY }
 
-/** Which Stat (spec Section 5.1) this habit feeds once the gamification core
- * (Phase 10) exists to actually grant XP against it. */
-enum class StatTag { STR, VIT, DISCIPLINE, INT, AGILITY }
+/** Which Stat (spec Section 5.1, later swapped AGILITY for SPIRITUALITY per user feedback -
+ * both gym exercise types read as "the same STR grind" to the user, and AGILITY as a separate
+ * axis added little; SPIRITUALITY is fed by habits like prayer/scripture/meditation instead)
+ * this habit feeds once the gamification core (Phase 10) exists to actually grant XP against it. */
+enum class StatTag { STR, VIT, DISCIPLINE, INT, SPIRITUALITY }
 
 @Serializable
 @Entity(tableName = "habits")

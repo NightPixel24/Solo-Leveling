@@ -35,10 +35,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.data.dao.FoodDao
 import com.nightpixel.sololeveling.data.dao.WaterDao
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.WaterLog
 import com.nightpixel.sololeveling.data.gamification.XpEngine
+import com.nightpixel.sololeveling.data.gamification.applyVitalityMultiplier
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -87,7 +89,9 @@ fun WaterScreen() {
                     xpGranted = alreadyGranted || justHitGoal
                 )
             )
-            if (justHitGoal) xpEngine.grant(StatTag.VIT, 10, "Water goal hit")
+            if (justHitGoal) {
+                xpEngine.grant(StatTag.VIT, applyVitalityMultiplier(app.database.foodDao(), 10), "Water goal hit")
+            }
         }
     }
 
@@ -100,7 +104,14 @@ fun WaterScreen() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Today's Water", style = MaterialTheme.typography.titleLarge)
+            Column {
+                Text("Today's Water", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Feeds VIT",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             IconButton(onClick = { showGoalDialog = true }) {
                 Icon(Icons.Filled.Settings, contentDescription = "Set goal")
             }
@@ -153,7 +164,13 @@ fun WaterScreen() {
  * [WaterScreen]'s own cup taps use, rather than re-deriving that logic a second time. Returns the
  * new count/goal so the caller (Dashboard has no visible water counter of its own) can show
  * feedback - without this, tapping the quick-add button had no visible effect at all. */
-suspend fun logWaterBottle(waterDao: WaterDao, xpEngine: XpEngine, date: String, currentLog: WaterLog?): Pair<Int, Int> {
+suspend fun logWaterBottle(
+    waterDao: WaterDao,
+    foodDao: FoodDao,
+    xpEngine: XpEngine,
+    date: String,
+    currentLog: WaterLog?
+): Pair<Int, Int> {
     val goal = currentLog?.goalBottles ?: waterDao.getLatestGoal() ?: 8
     val newBottles = ((currentLog?.bottlesLogged ?: 0) + 1).coerceAtMost(goal)
     val alreadyGranted = currentLog?.xpGranted ?: false
@@ -161,7 +178,7 @@ suspend fun logWaterBottle(waterDao: WaterDao, xpEngine: XpEngine, date: String,
     waterDao.upsertLog(
         WaterLog(date = date, bottlesLogged = newBottles, goalBottles = goal, xpGranted = alreadyGranted || justHitGoal)
     )
-    if (justHitGoal) xpEngine.grant(StatTag.VIT, 10, "Water goal hit")
+    if (justHitGoal) xpEngine.grant(StatTag.VIT, applyVitalityMultiplier(foodDao, 10), "Water goal hit")
     return newBottles to goal
 }
 

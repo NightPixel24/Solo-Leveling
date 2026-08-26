@@ -508,6 +508,76 @@ actual calendar data. A final `adb logcat` sweep showed no app crashes (one beni
 ResourcesManager log from the emulator's Wellbeing service mid-reinstall, and the same harmless
 `FrameTracker` IME timeout seen in earlier phases).
 
+**Second feedback pass (2026-08-26, v1.1.0 -> v1.2.0)**: same day, a follow-up round of feedback
+plus a live design conversation about the stat set. Schema bump to v14 (`MIGRATION_13_14`) bundles
+three unrelated-but-simultaneous changes rather than three separate version bumps for one evening:
+- **AGILITY replaced with SPIRITUALITY**: the user felt AGILITY overlapped with STR ("if I go to
+  the gym I always do cardio anyway") and wanted a stat fed by prayer/scripture/meditation habits
+  instead. Since `StatTag` is stored as its raw `.name` string (`Converters.kt`), the migration
+  does real `UPDATE ... SET tag = 'SPIRITUALITY' WHERE tag = 'AGILITY'` statements against
+  `stats`/`habits`/`xp_logs`, not just a Kotlin rename - verified against real seeded data in
+  `MigrationTest.migrate13To14`, not just schema-shape validation. Both `ExerciseType.STRENGTH`
+  and `CARDIO_SPORT` gym sessions now grant STR (previously Cardio/Sport fed AGILITY) - `GymScreen`
+  and `Exercise.kt`'s doc comment updated; `GymScreen`'s `TypeChip` now labels the exercise type
+  itself ("STRENGTH"/"CARDIO") instead of a stat abbreviation, since both types feed the same stat
+  now and the abbreviation stopped being a useful distinguisher.
+- **Name + Title system**: replaces the Dashboard's old static "Rank" label. New `PlayerProfile`
+  table (single row, id=0, same pattern as `AppMeta`/`GoldBalance`) holds an editable display name
+  and an `equippedTitleId`. Titles themselves are *not* a table - `data/gamification/Titles.kt`
+  computes every currently-unlocked title live from Rank + Stat data (one title per Rank tier E
+  through SS, e.g. "S-Rank Hunter"/"National Level Hunter"; five level-gated tiers per stat, e.g.
+  STR's "Novice Brawler" -> "Monarch of Strength" at levels 10/25/50/75/99) - the same
+  "derive, don't store" approach Rank/Quests/Rewards already established, so only the *name* and
+  the *equip choice* need persisting. Copy is this app's own invention (the spec names no titles at
+  all), themed to match the "Hunter"/"Monarch" Solo Leveling flavor already used elsewhere. Tapping
+  the name opens a rename dialog; tapping the title opens a picker listing every unlocked title
+  with a checkmark on the equipped one.
+- **Food ratings + optional photo**: `FoodLogEntry` gained a `rating: FoodRating`
+  (HEALTHY/OK/UNHEALTHY, same three-tier shape and color language as `MoodColor`) and `photoUri`
+  became nullable - SQLite can't ALTER a column's NOT NULL constraint in place, so the migration
+  rebuilds the table (create-copy-drop-rename). `FoodScreen` gained a pencil icon in the top bar
+  for "log without a photo" (reuses the same `ConfirmFoodDialog`, now `photoUri: Uri?`, rather than
+  a second dialog), and a Dashboard Analytics "Food Health This Month" section
+  (`foodHealthDistributionForMonth`, mirroring `moodDistributionForMonth`'s exact shape).
+- **Low-vitality XP debuff**: not in the spec - a user-requested mechanic ("if I eat too much
+  unhealthy food in a row then vitality xp is in a lowered gain mode until I eat healthy again").
+  Simplified to a fixed rolling window rather than a stateful streak-since-last-healthy (consistent
+  with this app's "derive, don't store" pattern): `data/gamification/Vitality.kt`'s
+  `isLowVitalityMode` checks whether the most recent 3 logged meals are *all* UNHEALTHY: if so,
+  every VIT grant (water goal, food logged, VIT-tagged habits - all three call sites now route
+  through `applyVitalityMultiplier`) is halved until a non-UNHEALTHY entry changes that window.
+  This is a deliberate simplification of "until I eat healthy again" (any OK or HEALTHY entry lifts
+  it, not strictly HEALTHY) - flagged to the user as the chosen interpretation, not silently
+  assumed.
+- **Bottom nav reshuffle**: 7 items down to 5 with Home visually centered
+  (`BottomNavDestination` reordered to Tasks/Habits/Dashboard/Gym/Life). Calendar and Rewards moved
+  to Dashboard top-bar icons (`Routes.CALENDAR`/`Routes.REWARDS`), the same "reached from
+  Dashboard, not the bar" treatment Settings/Goals/Punishments already had.
+- **"Feeds X" labels**: small subtitle text added under each screen's own title/header (Gym "Feeds
+  STR", Tasks "Feeds DISCIPLINE", Water "Feeds VIT", Food "Feeds VIT") - Habits already showed a
+  per-habit stat chip, which is what prompted the ask ("similar to the habits section... maybe you
+  should say this is VIT"). Mood intentionally has no such label since mood was never wired to any
+  stat, in spec or in this codebase.
+No bugs found this pass (the two real bugs - the water race condition and Settings' missing scroll
+- were found and fixed in the *first* feedback pass earlier the same day, documented above).
+Verified on-device (`SoloLeveling_Pixel6` emulator, real v13->v14 migration since this device
+already had backup-test data from Phase 17): all 14 `connectedDebugAndroidTest` migration cases
+passed, including the new `migrate13To14` (seeds a real 'AGILITY' stats row before migrating,
+queries the migrated DB directly and confirms it reads back as 'SPIRITUALITY') and the extended
+full-chain test (now asserting a `SPIRITUALITY` stat exists and the default `PlayerProfile` row
+seeded correctly); radar chart, habit stat-tag chips, and `statColor` all confirmed showing
+SPIRITUALITY correctly; created a SPIRITUALITY-tagged habit and confirmed completing it granted
++10 XP to the right stat; renamed the player profile (persisted correctly via sqlite3 check) and
+confirmed the title picker opens showing "E-Rank Hunter" as the sole unlocked title at rank E;
+logged 3 unhealthy meals via the new no-photo manual-entry dialog and confirmed the 4th VIT grant
+(a water-goal hit) came in at half XP (18 total across 4 grants: 5+5+3+5, the 3rd meal's own grant
+already reduced once the 3-unhealthy window formed), then logged a Healthy meal and confirmed the
+very next VIT grant returned to full (+5, for 26 total) - the debuff both triggers and lifts
+correctly; Dashboard's Analytics tab correctly showed "Healthy: 1, Unhealthy: 4" after the test
+sequence; bottom nav confirmed showing exactly 5 items with Home centered, and Calendar/Rewards
+confirmed reachable via their new Dashboard top-bar icons with no visual clipping despite 5 total
+icons plus the Gold badge. A final `adb logcat` sweep showed no app crashes.
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

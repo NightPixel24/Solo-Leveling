@@ -48,7 +48,8 @@ class BackupManager(private val database: AppDatabase) {
             goldBalance = database.rewardDao().getBalanceOnce(),
             goldTransactions = database.rewardDao().getAllTransactionsOnce(),
             rewardPoolItems = database.rewardDao().getAllPoolItemsOnce(),
-            rewardTargets = database.rewardDao().getAllTargetsOnce()
+            rewardTargets = database.rewardDao().getAllTargetsOnce(),
+            playerProfile = database.playerProfileDao().getOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -104,6 +105,7 @@ class BackupManager(private val database: AppDatabase) {
                 backup.rewardPoolItems,
                 backup.rewardTargets
             )
+            database.playerProfileDao().replaceAll(backup.playerProfile)
         }
     }
 }

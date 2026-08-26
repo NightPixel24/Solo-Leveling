@@ -113,7 +113,16 @@ fun TasksScreen() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tasks") },
+                title = {
+                    Column {
+                        Text("Tasks")
+                        Text(
+                            "Feeds DISCIPLINE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = { showAddListDialog = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "Add list")

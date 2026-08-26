@@ -2,6 +2,8 @@ package com.nightpixel.sololeveling.data.gamification
 
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.ExerciseWithSessions
+import com.nightpixel.sololeveling.data.entity.FoodLogEntry
+import com.nightpixel.sololeveling.data.entity.FoodRating
 import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.MoodColor
@@ -107,6 +109,21 @@ fun moodDistributionForMonth(entries: List<MoodEntry>, month: YearMonth): MoodDi
         good = monthEntries.count { it.color == MoodColor.GOOD },
         ok = monthEntries.count { it.color == MoodColor.OK },
         bad = monthEntries.count { it.color == MoodColor.BAD }
+    )
+}
+
+data class FoodHealthDistribution(val healthy: Int, val ok: Int, val unhealthy: Int) {
+    val total get() = healthy + ok + unhealthy
+}
+
+/** "Stats showing how healthy I ate" (user feedback, 2026-08-26) - same shape as
+ * [moodDistributionForMonth], now that food entries carry a [FoodRating]. */
+fun foodHealthDistributionForMonth(entries: List<FoodLogEntry>, month: YearMonth): FoodHealthDistribution {
+    val monthEntries = entries.filter { runCatching { LocalDate.parse(it.date) }.getOrNull()?.let { d -> YearMonth.from(d) == month } == true }
+    return FoodHealthDistribution(
+        healthy = monthEntries.count { it.rating == FoodRating.HEALTHY },
+        ok = monthEntries.count { it.rating == FoodRating.OK },
+        unhealthy = monthEntries.count { it.rating == FoodRating.UNHEALTHY }
     )
 }
 

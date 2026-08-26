@@ -4,8 +4,10 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
 
-/** Strength feeds STR, Cardio/Sport feeds AGILITY (spec Section 5.1) - showing
- * up on either type still feeds DISCIPLINE, handled once XP exists (Phase 10). */
+/** Both types feed STR (spec Section 5.1 originally split Strength->STR, Cardio/Sport->AGILITY,
+ * but AGILITY was later dropped per user feedback - both exercise types read as "the same gym
+ * grind" to the user) - showing up on either type still feeds DISCIPLINE, handled once XP exists
+ * (Phase 10). */
 enum class ExerciseType { STRENGTH, CARDIO_SPORT }
 
 @Serializable

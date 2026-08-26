@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.data.dao.FoodDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitFrequency
@@ -59,6 +60,7 @@ import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.gamification.GoldEngine
 import com.nightpixel.sololeveling.data.gamification.XpEngine
+import com.nightpixel.sololeveling.data.gamification.applyVitalityMultiplier
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
@@ -78,6 +80,7 @@ fun HabitsScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val habitDao = remember { app.database.habitDao() }
+    val foodDao = remember { app.database.foodDao() }
     val xpEngine = remember { app.xpEngine }
     val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
@@ -123,7 +126,7 @@ fun HabitsScreen() {
                         HabitRow(
                             habitWithLogs = habitWithLogs,
                             today = today,
-                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, xpEngine, goldEngine, scope) },
+                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, goldEngine, scope) },
                             onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
                         )
                     }
@@ -134,7 +137,7 @@ fun HabitsScreen() {
                         HabitRow(
                             habitWithLogs = habitWithLogs,
                             today = today,
-                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, xpEngine, goldEngine, scope) },
+                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, goldEngine, scope) },
                             onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
                         )
                     }
@@ -160,6 +163,7 @@ fun toggleToday(
     habitWithLogs: HabitWithLogs,
     today: LocalDate,
     habitDao: HabitDao,
+    foodDao: FoodDao,
     xpEngine: XpEngine,
     goldEngine: GoldEngine,
     scope: CoroutineScope
@@ -172,7 +176,9 @@ fun toggleToday(
             habitDao.deleteLog(habit.id, todayStr)
         } else {
             habitDao.upsertLog(HabitLog(habitId = habit.id, date = todayStr))
-            val xpAmount = 10
+            // Low-vitality mode (user feedback, 2026-08-26) only touches VIT grants, same as
+            // every other VIT source (water goal, food logged).
+            val xpAmount = if (habit.statTag == StatTag.VIT) applyVitalityMultiplier(foodDao, 10) else 10
             xpEngine.grant(habit.statTag, xpAmount, "Habit: ${habit.title}")
             // Spec Section 5.7 - "habits and gym completions grant Gold in addition to stat XP,
             // e.g. 1 Gold per 10 XP" - derived straight from the XP just granted.
@@ -260,7 +266,7 @@ private fun StatChip(tag: StatTag) {
         StatTag.VIT -> SystemGreen
         StatTag.DISCIPLINE -> SystemBlue
         StatTag.INT -> SystemVioletBright
-        StatTag.AGILITY -> SystemYellow
+        StatTag.SPIRITUALITY -> SystemYellow
     }
     Surface(
         color = color.copy(alpha = 0.2f),

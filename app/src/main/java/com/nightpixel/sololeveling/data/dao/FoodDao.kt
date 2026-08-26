@@ -14,6 +14,11 @@ interface FoodDao {
     @Query("SELECT * FROM food_log_entries ORDER BY timestamp DESC")
     fun observeEntries(): Flow<List<FoodLogEntry>>
 
+    /** Used by [com.nightpixel.sololeveling.data.gamification.vitXpMultiplier] to check recent
+     * ratings before granting VIT XP. */
+    @Query("SELECT * FROM food_log_entries ORDER BY timestamp DESC LIMIT :count")
+    suspend fun getRecentOnce(count: Int): List<FoodLogEntry>
+
     @Insert
     suspend fun insertEntry(entry: FoodLogEntry): Long
 

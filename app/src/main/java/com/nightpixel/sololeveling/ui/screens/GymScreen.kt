@@ -84,7 +84,16 @@ fun GymScreen() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Gym") },
+                title = {
+                    Column {
+                        Text("Gym")
+                        Text(
+                            "Feeds STR",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "Add exercise")
@@ -213,7 +222,9 @@ fun GymScreen() {
             onConfirm = { session ->
                 val previousSessions = exercises.find { it.exercise.id == exercise.id }?.sessions.orEmpty()
                 val isPr = isPersonalRecord(exercise, session, previousSessions)
-                val statTag = if (exercise.type == ExerciseType.STRENGTH) StatTag.STR else StatTag.AGILITY
+                // Both exercise types feed STR now (AGILITY was dropped) - kept as its own local
+                // rather than inlined below since the PR-vs-normal amount below still branches on it.
+                val statTag = StatTag.STR
                 val newlyDefeatedBoss = session.actualWeight?.let { weight ->
                     bosses.find { it.exerciseId == exercise.id && !it.defeated && weight >= it.targetWeight }
                 }
@@ -422,7 +433,9 @@ private fun TypeChip(type: ExerciseType) {
         shape = MaterialTheme.shapes.small
     ) {
         Text(
-            if (type == ExerciseType.STRENGTH) "STR" else "AGILITY",
+            // Both types feed STR now (AGILITY was dropped) - label the type itself
+            // (Strength vs Cardio) rather than a stat abbreviation that no longer distinguishes them.
+            if (type == ExerciseType.STRENGTH) "STRENGTH" else "CARDIO",
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
         )

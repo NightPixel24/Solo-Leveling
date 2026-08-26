@@ -2,6 +2,7 @@ package com.nightpixel.sololeveling.data
 
 import androidx.room.TypeConverter
 import com.nightpixel.sololeveling.data.entity.ExerciseType
+import com.nightpixel.sololeveling.data.entity.FoodRating
 import com.nightpixel.sololeveling.data.entity.GoalStatus
 import com.nightpixel.sololeveling.data.entity.GoalTier
 import com.nightpixel.sololeveling.data.entity.HabitFrequency
@@ -65,4 +66,10 @@ class Converters {
 
     @TypeConverter
     fun toRewardPool(value: String): RewardPool = RewardPool.valueOf(value)
+
+    @TypeConverter
+    fun fromFoodRating(rating: FoodRating): String = rating.name
+
+    @TypeConverter
+    fun toFoodRating(value: String): FoodRating = FoodRating.valueOf(value)
 }

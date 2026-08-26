@@ -5,6 +5,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.nightpixel.sololeveling.data.entity.StatTag
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -100,19 +101,36 @@ class MigrationTest {
         helper.runMigrationsAndValidate(dbName, 13, true, AppDatabase.MIGRATION_12_13)
     }
 
+    /** Also seeds a real 'AGILITY' stats/habits/xp_logs row before migrating, so the rename to
+     * 'SPIRITUALITY' (user feedback, 2026-08-26) is exercised against actual data, not just an
+     * empty table - runMigrationsAndValidate's schema check alone wouldn't catch a rename typo. */
+    @Test
+    fun migrate13To14() {
+        val db = helper.createDatabase(dbName, 13)
+        db.execSQL("INSERT INTO stats (tag, level, currentXp) VALUES ('AGILITY', 3, 10)")
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 14, true, AppDatabase.MIGRATION_13_14)
+        migrated.query("SELECT tag, level FROM stats WHERE level = 3").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("SPIRITUALITY", cursor.getString(0))
+        }
+    }
+
     /** The full chain a real device upgrading from the very first release runs through, plus a
      * sanity read through Room's own generated DAOs (not just raw-SQL schema validation) to
-     * confirm the fully-migrated database is actually usable - the seeded rows both
-     * MIGRATION_2_3 and MIGRATION_9_10 insert should have survived the whole chain. */
+     * confirm the fully-migrated database is actually usable - the seeded rows MIGRATION_2_3,
+     * MIGRATION_9_10, MIGRATION_12_13 and MIGRATION_13_14 insert should have survived the whole
+     * chain, and no stats row should still carry the old 'AGILITY' tag. */
     @Test
     fun migrateAllStepsAndOpenWithRoom() {
         helper.createDatabase(dbName, 1).close()
         helper.runMigrationsAndValidate(
-            dbName, 13, true,
+            dbName, 14, true,
             AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
-            AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13
+            AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
+            AppDatabase.MIGRATION_13_14
         )
 
         val db = Room.databaseBuilder(
@@ -124,18 +142,25 @@ class MigrationTest {
                 AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
                 AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
                 AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
-                AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13
+                AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
+                AppDatabase.MIGRATION_13_14
             )
             .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .build()
 
         db.openHelper.writableDatabase
-        val (taskLists, stats) = runBlocking {
-            db.taskListDao().getAllListsOnce() to db.statDao().getAllStatsOnce()
+        val (taskLists, stats, profile) = runBlocking {
+            Triple(
+                db.taskListDao().getAllListsOnce(),
+                db.statDao().getAllStatsOnce(),
+                db.playerProfileDao().getOnce()
+            )
         }
         db.close()
 
         assertEquals(1, taskLists.size)
         assertEquals(5, stats.size)
+        assertEquals(true, stats.any { it.tag == StatTag.SPIRITUALITY })
+        assertEquals("Hunter", profile?.name)
     }
 }

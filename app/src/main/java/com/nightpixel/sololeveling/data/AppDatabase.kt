@@ -15,6 +15,7 @@ import com.nightpixel.sololeveling.data.dao.GoalDao
 import com.nightpixel.sololeveling.data.dao.GymDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
 import com.nightpixel.sololeveling.data.dao.MoodDao
+import com.nightpixel.sololeveling.data.dao.PlayerProfileDao
 import com.nightpixel.sololeveling.data.dao.PunishmentDao
 import com.nightpixel.sololeveling.data.dao.RewardDao
 import com.nightpixel.sololeveling.data.dao.StatDao
@@ -33,6 +34,7 @@ import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.MoodEntry
+import com.nightpixel.sololeveling.data.entity.PlayerProfile
 import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
@@ -57,9 +59,10 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         CalendarEventCache::class, MoodEntry::class, FoodLogEntry::class, WaterLog::class,
         Goal::class, Stat::class, XpLog::class, Boss::class,
         PunishmentPoolItem::class, PunishmentAssignment::class,
-        GoldBalance::class, GoldTransaction::class, RewardPoolItem::class, RewardTarget::class
+        GoldBalance::class, GoldTransaction::class, RewardPoolItem::class, RewardTarget::class,
+        PlayerProfile::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -78,9 +81,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bossDao(): BossDao
     abstract fun punishmentDao(): PunishmentDao
     abstract fun rewardDao(): RewardDao
+    abstract fun playerProfileDao(): PlayerProfileDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 13
+        const val CURRENT_SCHEMA_VERSION = 14
         private const val DB_NAME = "solo_leveling.db"
 
         private fun seedDefaultListSql(): String =
@@ -413,6 +417,52 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Bundles three unrelated-but-simultaneous changes from the same round of user feedback
+         * (2026-08-26) rather than three separate version bumps for one evening's work:
+         * (1) AGILITY was dropped in favor of SPIRITUALITY - since StatTag is stored as its raw
+         * `.name` string (see Converters.kt), every existing row referencing the old name needs
+         * updating, not just the Kotlin enum; (2) FoodLogEntry gained a `rating` column and its
+         * `photoUri` became nullable - SQLite can't ALTER a column's NOT NULL constraint in place,
+         * so this rebuilds the table (copy-drop-rename), the standard safe approach for a
+         * constraint change; (3) a new player_profile table for the name+title system. */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE stats SET tag = 'SPIRITUALITY' WHERE tag = 'AGILITY'")
+                db.execSQL("UPDATE habits SET statTag = 'SPIRITUALITY' WHERE statTag = 'AGILITY'")
+                db.execSQL("UPDATE xp_logs SET statTag = 'SPIRITUALITY' WHERE statTag = 'AGILITY'")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE food_log_entries_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        date TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        photoUri TEXT,
+                        description TEXT NOT NULL,
+                        rating TEXT NOT NULL DEFAULT 'OK'
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "INSERT INTO food_log_entries_new (id, date, timestamp, photoUri, description, rating) " +
+                        "SELECT id, date, timestamp, photoUri, description, 'OK' FROM food_log_entries"
+                )
+                db.execSQL("DROP TABLE food_log_entries")
+                db.execSQL("ALTER TABLE food_log_entries_new RENAME TO food_log_entries")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS player_profile (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        equippedTitleId TEXT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("INSERT INTO player_profile (id, name, equippedTitleId) VALUES (0, 'Hunter', NULL)")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -426,16 +476,17 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                        MIGRATION_11_12, MIGRATION_12_13
+                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
-                            // Fresh installs skip MIGRATION_2_3, MIGRATION_9_10 and MIGRATION_12_13,
-                            // so seed here instead.
+                            // Fresh installs skip MIGRATION_2_3, MIGRATION_9_10, MIGRATION_12_13 and
+                            // MIGRATION_13_14's inserts, so seed here instead.
                             db.execSQL(seedDefaultListSql())
                             StatTag.entries.forEach { db.execSQL(seedStatSql(it)) }
                             db.execSQL("INSERT INTO gold_balance (id, balance) VALUES (0, 0)")
+                            db.execSQL("INSERT INTO player_profile (id, name, equippedTitleId) VALUES (0, 'Hunter', NULL)")
                         }
                     })
                     .build()

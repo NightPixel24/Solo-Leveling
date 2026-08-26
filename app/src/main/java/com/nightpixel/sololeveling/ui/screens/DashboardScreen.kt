@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocalDrink
@@ -40,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -72,27 +75,33 @@ import com.nightpixel.sololeveling.data.entity.GoalTier
 import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.MoodEntry
+import com.nightpixel.sololeveling.data.entity.PlayerProfile
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.WaterLog
 import com.nightpixel.sololeveling.data.entity.XpLog
+import com.nightpixel.sololeveling.data.gamification.FoodHealthDistribution
 import com.nightpixel.sololeveling.data.gamification.HabitCompletionStat
 import com.nightpixel.sololeveling.data.gamification.MAX_STAT_LEVEL
 import com.nightpixel.sololeveling.data.gamification.MoodDistribution
 import com.nightpixel.sololeveling.data.gamification.QuestItem
 import com.nightpixel.sololeveling.data.gamification.RankTier
+import com.nightpixel.sololeveling.data.gamification.Title
 import com.nightpixel.sololeveling.data.gamification.WeekGoodness
 import com.nightpixel.sololeveling.data.gamification.WeeklyQuestResult
 import com.nightpixel.sololeveling.data.gamification.WeeklyVolume
 import com.nightpixel.sololeveling.data.gamification.computeDailyQuests
 import com.nightpixel.sololeveling.data.gamification.computeRank
 import com.nightpixel.sololeveling.data.gamification.computeWeeklyQuests
+import com.nightpixel.sololeveling.data.gamification.foodHealthDistributionForMonth
 import com.nightpixel.sololeveling.data.gamification.goodWeekHistory
 import com.nightpixel.sololeveling.data.gamification.gymVolumeByWeek
 import com.nightpixel.sololeveling.data.gamification.habitCompletionRates
 import com.nightpixel.sololeveling.data.gamification.moodDistributionForMonth
 import com.nightpixel.sololeveling.data.gamification.statXpTrends
+import com.nightpixel.sololeveling.data.gamification.titleById
+import com.nightpixel.sololeveling.data.gamification.unlockedTitles
 import com.nightpixel.sololeveling.data.gamification.xpForLevel
 import com.nightpixel.sololeveling.ui.components.LineChart
 import com.nightpixel.sololeveling.ui.components.LineSeries
@@ -127,6 +136,8 @@ fun DashboardScreen(
     onSettingsClick: () -> Unit,
     onGoalsClick: () -> Unit,
     onPunishmentsClick: () -> Unit,
+    onCalendarClick: () -> Unit,
+    onRewardsClick: () -> Unit,
     onMoodClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -141,6 +152,7 @@ fun DashboardScreen(
     val taskDao = remember { app.database.taskDao() }
     val bossDao = remember { app.database.bossDao() }
     val rewardDao = remember { app.database.rewardDao() }
+    val playerProfileDao = remember { app.database.playerProfileDao() }
     val xpEngine = remember { app.xpEngine }
     val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
@@ -152,6 +164,13 @@ fun DashboardScreen(
 
     val goals by goalDao.observeAll().collectAsState(initial = emptyList())
     val rank = remember(goals) { computeRank(goals) }
+
+    val profile by playerProfileDao.observe().collectAsState(initial = null)
+    val equippedTitle = remember(profile, rank, orderedStats) {
+        titleById(profile?.equippedTitleId, rank, orderedStats)
+    }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showTitlePicker by remember { mutableStateOf(false) }
 
     val today = remember { LocalDate.now() }
     val todayStr = remember(today) { today.toString() }
@@ -166,6 +185,7 @@ fun DashboardScreen(
     val todayWaterLog by waterDao.observeLog(todayStr).collectAsState(initial = null)
     val allWaterLogs by waterDao.observeAllLogs().collectAsState(initial = emptyList())
     val moodEntries by moodDao.observeEntries().collectAsState(initial = emptyList())
+    val foodEntries by foodDao.observeEntries().collectAsState(initial = emptyList())
     val allTasks by taskDao.observeAllTasks().collectAsState(initial = emptyList())
     val bosses by bossDao.observeBosses().collectAsState(initial = emptyList())
     val goldBalance by rewardDao.observeBalance().collectAsState(initial = null)
@@ -229,6 +249,12 @@ fun DashboardScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        IconButton(onClick = onCalendarClick) {
+                            Icon(Icons.Filled.CalendarMonth, contentDescription = "Calendar")
+                        }
+                        IconButton(onClick = onRewardsClick) {
+                            Icon(Icons.Filled.CardGiftcard, contentDescription = "Rewards")
+                        }
                         IconButton(onClick = onPunishmentsClick) {
                             Icon(Icons.Filled.Gavel, contentDescription = "Punishment Pool")
                         }
@@ -251,6 +277,10 @@ fun DashboardScreen(
                 DashboardTab.HOME -> DashboardHome(
                     rank = rank,
                     onGoalsClick = onGoalsClick,
+                    playerName = profile?.name ?: "Hunter",
+                    equippedTitle = equippedTitle,
+                    onNameClick = { showRenameDialog = true },
+                    onTitleClick = { showTitlePicker = true },
                     orderedStats = orderedStats,
                     dailyQuests = dailyQuests,
                     weeklyQuests = weeklyQuests,
@@ -265,7 +295,7 @@ fun DashboardScreen(
                     onQuickAddHabit = { showHabitPicker = true },
                     onQuickAddWater = {
                         scope.launch {
-                            val (logged, goal) = logWaterBottle(waterDao, xpEngine, todayStr, todayWaterLog)
+                            val (logged, goal) = logWaterBottle(waterDao, foodDao, xpEngine, todayStr, todayWaterLog)
                             val message = if (logged >= goal && (todayWaterLog?.bottlesLogged ?: 0) >= goal) {
                                 "Daily water goal already reached ($logged/$goal cups)"
                             } else {
@@ -287,6 +317,7 @@ fun DashboardScreen(
                     habitsWithLogs = habitsWithLogs,
                     exercisesWithSessions = exercisesWithSessions,
                     moodEntries = moodEntries,
+                    foodEntries = foodEntries,
                     waterLogsByDate = waterLogsByDate
                 )
             }
@@ -312,7 +343,7 @@ fun DashboardScreen(
                         undoneDaily.forEach { hwl ->
                             Surface(
                                 onClick = {
-                                    toggleToday(hwl, today, habitDao, xpEngine, goldEngine, scope)
+                                    toggleToday(hwl, today, habitDao, foodDao, xpEngine, goldEngine, scope)
                                     showHabitPicker = false
                                 },
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -343,18 +374,36 @@ fun DashboardScreen(
                 file.delete()
                 capturedPhotoFile = null
             },
-            onSave = { description ->
-                scope.launch {
-                    foodDao.insertEntry(
-                        FoodLogEntry(
-                            date = LocalDate.now().toString(),
-                            photoUri = photoFileUri(context, file).toString(),
-                            description = description
-                        )
-                    )
-                    xpEngine.grant(StatTag.VIT, 5, "Food logged")
-                }
+            onSave = { description, rating ->
+                scope.launch { logFood(foodDao, xpEngine, photoFileUri(context, file).toString(), description, rating) }
                 capturedPhotoFile = null
+            }
+        )
+    }
+
+    if (showRenameDialog) {
+        RenameProfileDialog(
+            initialName = profile?.name ?: "Hunter",
+            onDismiss = { showRenameDialog = false },
+            onConfirm = { newName ->
+                scope.launch {
+                    playerProfileDao.upsert((profile ?: PlayerProfile()).copy(name = newName))
+                }
+                showRenameDialog = false
+            }
+        )
+    }
+
+    if (showTitlePicker) {
+        TitlePickerDialog(
+            unlocked = unlockedTitles(rank, orderedStats),
+            equippedId = equippedTitle.id,
+            onDismiss = { showTitlePicker = false },
+            onEquip = { titleId ->
+                scope.launch {
+                    playerProfileDao.upsert((profile ?: PlayerProfile()).copy(equippedTitleId = titleId))
+                }
+                showTitlePicker = false
             }
         )
     }
@@ -364,6 +413,10 @@ fun DashboardScreen(
 private fun DashboardHome(
     rank: RankTier,
     onGoalsClick: () -> Unit,
+    playerName: String,
+    equippedTitle: Title,
+    onNameClick: () -> Unit,
+    onTitleClick: () -> Unit,
     orderedStats: List<Stat>,
     dailyQuests: List<QuestItem>,
     weeklyQuests: WeeklyQuestResult,
@@ -400,11 +453,16 @@ private fun DashboardHome(
             ) {
                 RankBadge(rank = rank, onClick = onGoalsClick)
                 Column {
-                    Text("Rank", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Your life trajectory - tap to view Life Goals",
+                        playerName,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.clickable(onClick = onNameClick)
+                    )
+                    Text(
+                        equippedTitle.displayName,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable(onClick = onTitleClick)
                     )
                 }
             }
@@ -523,12 +581,14 @@ private fun DashboardAnalytics(
     habitsWithLogs: List<HabitWithLogs>,
     exercisesWithSessions: List<ExerciseWithSessions>,
     moodEntries: List<MoodEntry>,
+    foodEntries: List<FoodLogEntry>,
     waterLogsByDate: Map<String, WaterLog>
 ) {
     val trends = remember(xpLogs, today) { statXpTrends(xpLogs, today) }
     val habitStats = remember(habitsWithLogs, today) { habitCompletionRates(habitsWithLogs, today) }
     val volume = remember(exercisesWithSessions, today) { gymVolumeByWeek(exercisesWithSessions, today) }
     val moodDist = remember(moodEntries, currentMonth) { moodDistributionForMonth(moodEntries, currentMonth) }
+    val foodDist = remember(foodEntries, currentMonth) { foodHealthDistributionForMonth(foodEntries, currentMonth) }
     val goodWeeks = remember(habitsWithLogs, exercisesWithSessions, waterLogsByDate, today) {
         goodWeekHistory(today, 8, habitsWithLogs, exercisesWithSessions, waterLogsByDate)
     }
@@ -620,6 +680,18 @@ private fun DashboardAnalytics(
             }
         }
 
+        item { SectionHeader("Food Health This Month") }
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FoodHealthBars(foodDist)
+                }
+            }
+        }
+
         item { SectionHeader("Good Weeks") }
         item {
             Card(
@@ -703,6 +775,27 @@ private fun MoodDistributionBars(dist: MoodDistribution) {
 private fun MoodBarRow(label: String, count: Int, total: Int, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(36.dp))
+        LinearProgressIndicator(
+            progress = { count.toFloat() / total },
+            modifier = Modifier.weight(1f),
+            color = color
+        )
+        Text("$count", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun FoodHealthBars(dist: FoodHealthDistribution) {
+    val total = dist.total.coerceAtLeast(1)
+    FoodBarRow("Healthy", dist.healthy, total, SystemGreen)
+    FoodBarRow("OK", dist.ok, total, SystemYellow)
+    FoodBarRow("Unhealthy", dist.unhealthy, total, SystemRed)
+}
+
+@Composable
+private fun FoodBarRow(label: String, count: Int, total: Int, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(64.dp))
         LinearProgressIndicator(
             progress = { count.toFloat() / total },
             modifier = Modifier.weight(1f),
@@ -834,5 +927,80 @@ private fun statColor(tag: StatTag) = when (tag) {
     StatTag.VIT -> SystemGreen
     StatTag.DISCIPLINE -> SystemBlue
     StatTag.INT -> SystemVioletBright
-    StatTag.AGILITY -> SystemYellow
+    StatTag.SPIRITUALITY -> SystemYellow
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RenameProfileDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Your Name") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
+                enabled = name.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun TitlePickerDialog(
+    unlocked: List<Title>,
+    equippedId: String,
+    onDismiss: () -> Unit,
+    onEquip: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose Title") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                unlocked.forEach { title ->
+                    val selected = title.id == equippedId
+                    Surface(
+                        onClick = { onEquip(title.id) },
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        },
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(title.displayName, style = MaterialTheme.typography.bodyLarge)
+                            if (selected) {
+                                Icon(Icons.Filled.Check, contentDescription = "Equipped", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
 }
