@@ -61,9 +61,14 @@ fun WaterScreen() {
 
     // A day's row doesn't exist until first touched - seed it (using whatever goal was last
     // set, so the target doesn't silently reset to the default every new day) rather than
-    // showing an empty/undefined state before the user interacts with anything.
-    LaunchedEffect(log) {
-        if (log == null) {
+    // showing an empty/undefined state before the user interacts with anything. Keyed on Unit
+    // (runs once per screen visit) and checks the DB directly via getLogOnce rather than trusting
+    // `log` - collectAsState's synthetic `initial = null` is indistinguishable from "no row yet"
+    // on the very first frame, so keying this off `log` raced the Flow's real first emission and
+    // could overwrite an already-logged day back to 0 cups if this composed again before that
+    // emission arrived (e.g. reopening the tab, or right after the Dashboard's quick-add).
+    LaunchedEffect(Unit) {
+        if (waterDao.getLogOnce(today) == null) {
             val defaultGoal = waterDao.getLatestGoal() ?: 8
             waterDao.upsertLog(WaterLog(date = today, bottlesLogged = 0, goalBottles = defaultGoal))
         }
@@ -103,7 +108,7 @@ fun WaterScreen() {
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                "$bottlesLogged / $goalBottles bottles ($goalBottles L goal)",
+                "$bottlesLogged / $goalBottles cups (${goalBottles * 250} ml goal)",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -122,7 +127,7 @@ fun WaterScreen() {
                 IconButton(onClick = { updateBottles(if (filled) i else i + 1) }) {
                     Icon(
                         Icons.Filled.LocalDrink,
-                        contentDescription = "Bottle ${i + 1}",
+                        contentDescription = "Cup ${i + 1}",
                         tint = if (filled) SystemBlue else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                         modifier = Modifier.size(40.dp)
                     )
@@ -144,9 +149,11 @@ fun WaterScreen() {
 }
 
 /** Not private - reused by the Dashboard's water quick-add (spec Section 6): a plain +1 to
- * today's bottle count, sharing the same goal-default and one-time `xpGranted` bookkeeping
- * [WaterScreen]'s own bottle taps use, rather than re-deriving that logic a second time. */
-suspend fun logWaterBottle(waterDao: WaterDao, xpEngine: XpEngine, date: String, currentLog: WaterLog?) {
+ * today's cup count, sharing the same goal-default and one-time `xpGranted` bookkeeping
+ * [WaterScreen]'s own cup taps use, rather than re-deriving that logic a second time. Returns the
+ * new count/goal so the caller (Dashboard has no visible water counter of its own) can show
+ * feedback - without this, tapping the quick-add button had no visible effect at all. */
+suspend fun logWaterBottle(waterDao: WaterDao, xpEngine: XpEngine, date: String, currentLog: WaterLog?): Pair<Int, Int> {
     val goal = currentLog?.goalBottles ?: waterDao.getLatestGoal() ?: 8
     val newBottles = ((currentLog?.bottlesLogged ?: 0) + 1).coerceAtMost(goal)
     val alreadyGranted = currentLog?.xpGranted ?: false
@@ -155,6 +162,7 @@ suspend fun logWaterBottle(waterDao: WaterDao, xpEngine: XpEngine, date: String,
         WaterLog(date = date, bottlesLogged = newBottles, goalBottles = goal, xpGranted = alreadyGranted || justHitGoal)
     )
     if (justHitGoal) xpEngine.grant(StatTag.VIT, 10, "Water goal hit")
+    return newBottles to goal
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -170,7 +178,7 @@ private fun SetGoalDialog(
         title = { Text("Daily Water Goal") },
         text = {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Bottles (1L each):", modifier = Modifier.weight(1f))
+                Text("Cups (250 ml each):", modifier = Modifier.weight(1f))
                 IconButton(onClick = { if (goal > 1) goal-- }) {
                     Icon(Icons.Filled.Remove, contentDescription = "Decrease goal")
                 }

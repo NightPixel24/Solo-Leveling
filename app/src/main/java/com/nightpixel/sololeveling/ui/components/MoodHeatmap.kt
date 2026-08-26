@@ -40,6 +40,7 @@ fun MonthHeatmap(
     entriesByDate: Map<String, MoodEntry>,
     onDayClick: (LocalDate) -> Unit
 ) {
+    val today = remember { LocalDate.now() }
     val firstDay = month.atDay(1)
     val leadingBlanks = (firstDay.dayOfWeek.value - DayOfWeek.MONDAY.value + 7) % 7
     val cells = remember(month) {
@@ -74,6 +75,7 @@ fun MonthHeatmap(
                     ) {
                         if (date != null) {
                             val entry = entriesByDate[date.toString()]
+                            val isToday = date == today
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -83,6 +85,13 @@ fun MonthHeatmap(
                                             Modifier.background(moodColorValue(entry.color))
                                         } else {
                                             Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+                                        }
+                                    )
+                                    .then(
+                                        if (isToday) {
+                                            Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                                        } else {
+                                            Modifier
                                         }
                                     )
                                     .clickable { onDayClick(date) },

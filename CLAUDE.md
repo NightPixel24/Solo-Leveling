@@ -447,6 +447,67 @@ harmless system log line, not an app error).
 
 This closes spec Section 10's build order - all 17 phases are now done.
 
+**Post-launch feedback pass (2026-08-26, v1.0.0 -> v1.1.0)**: first round of real-device testing
+feedback, fixed same-day. Bugs found:
+- **Real bug (not just missing feedback)**: `WaterScreen`'s day-row seeding `LaunchedEffect` was
+  keyed on `log` (from `collectAsState(initial = null)`) and fired on that synthetic `null` before
+  the Flow's real first emission could arrive, unconditionally overwriting *any* already-logged
+  water for today back to 0 - a genuine race, not just a UX gap. Fixed by keying the effect on
+  `Unit` and checking a new one-shot `WaterDao.getLogOnce(date)` against the real DB state instead
+  of trusting the reactive stream's placeholder value.
+- `SettingsScreen`'s Column had no `verticalScroll` - harmless when it only held Backup, but once
+  Notifications/Danger Zone/About (this pass + Phase 17) pushed it past one screen, the bottom
+  content (including the new Clear Data button) was silently unreachable. Added the scroll.
+Everything else was polish/new capability, not bugs:
+- Water: renamed "bottles (1L)" -> "cups (250ml)" throughout (same default of 8, now a sane 2L/day
+  instead of an 8L/day target); Dashboard's quick-add now shows a Snackbar ("Logged 1 cup (x/y)" or
+  "goal already reached") since it has no visible water counter of its own to react to.
+- Mood heatmap: today's cell gets a colored ring border regardless of whether it's rated yet.
+- Tasks: added a pencil-icon edit action (title/priority/due date/notes) via a `TaskEditorDialog`
+  generalized from the old add-only dialog rather than a second copy; the always-visible "add
+  subtask" text field collapsed to a subtle "+ Add subtask" text row that expands to the real input
+  on tap, since a permanent input control in every expanded card read as too loud next to the task
+  list above it.
+- Calendar: replaced the flat agenda list with an actual visual calendar (spec Section 4.1) - a
+  Week tab (7-day strip, tap a day to see its events) and a Month tab (grid with event-dot markers,
+  tapping a day jumps to Week); also fixed a real flash-of-wrong-state bug where the "Connect
+  Google Calendar" button showed for a moment on every cold start even for an already-connected
+  account, because the access cache only proves *granted*, never *not yet checked* - added a
+  `checkingAccess` state so a spinner shows instead until the silent re-check resolves either way.
+- Dashboard: the Gold total moved from a full-size row next to the Rank badge into a small
+  HUD-style badge in the top bar (spec Section 2 calls for a "System window" aesthetic; a
+  dollar-sign row was reported as reading "cheap" and crowding the Rank badge); flattened all of
+  Dashboard's `Card` elevations to 0dp (shadows were rendering on a near-black background for no
+  visual benefit, and are one of the more common Compose scroll-jank sources when a screen has this
+  many cards) and wrapped the radar chart's per-recomposition list build in `remember` - a
+  best-effort perf pass for a reported "choppy scroll," not a verified profiling fix, since this
+  session had no way to profile the actual device.
+- Settings: added a "Clear All App Data" Danger Zone action for repeatable fresh-start testing -
+  `BackupManager.wipeAll(context)` reuses `restore()`'s existing "missing fields get seeded"
+  behavior by handing it an all-empty `BackupData` rather than a second seed path, and also deletes
+  orphaned food photo files from internal storage.
+Deferred as design decisions rather than guessed at: reshuffling the 7-item bottom nav down to a
+Home-centered 5 (which 2 items move, and to where, is a real UX call); the requested Name + rank
+Title + per-stat sub-title + equip system to replace the Rank badge (title copy/unlock rules would
+otherwise be invented wholesale). Both are open questions for the user, not yet built.
+Not independently re-tested on-device: `DISCIPLINE`'s XP sourcing already matches what was asked
+("goes up as I do my habits and tasks and I'm consistent") - task completion always grants
+DISCIPLINE (+5, plus +3 Side Quest bonus), and any habit tagged DISCIPLINE grants it on completion
+- explained to the user as existing behavior rather than changed.
+Verified on-device (`SoloLeveling_Pixel6` emulator, plain `installDebug` - no schema change): the
+water race condition fixed and reproduced-then-confirmed-fixed via the exact repro (Dashboard
+quick-add -> Life's Water tab, before showed 0/8, after correctly showed 1/8); Settings scroll
+fix confirmed by reaching and using the new Clear Data button, which correctly zeroed every table
+and deleted the (empty, in this test) food_photos directory with no crash; task edit dialog
+confirmed end-to-end via direct sqlite3 verification (priority changed LOW -> HIGH); subtle
+add-subtask row, mood today-highlight, and the relocated Gold badge all confirmed visually. Calendar
+week/month views compile and render (Connect-account screen, no crash) but couldn't be verified
+against real events - this dev machine cannot complete real Google sign-in on the emulator (see the
+`dev-machine-jdk-tls-workaround` memory); a real device is needed to verify those views against
+actual calendar data. A final `adb logcat` sweep showed no app crashes (one benign APK-swap
+ResourcesManager log from the emulator's Wellbeing service mid-reinstall, and the same harmless
+`FrameTracker` IME timeout seen in earlier phases).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

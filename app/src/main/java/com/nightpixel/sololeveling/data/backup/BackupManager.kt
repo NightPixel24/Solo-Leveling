@@ -11,6 +11,7 @@ import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.TaskList
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.time.Instant
 
 private val backupJson = Json {
@@ -60,7 +61,21 @@ class BackupManager(private val database: AppDatabase) {
             input.readBytes().toString(Charsets.UTF_8)
         } ?: error("Could not open $uri for reading")
 
-        val backup = backupJson.decodeFromString(BackupData.serializer(), json)
+        restore(backupJson.decodeFromString(BackupData.serializer(), json))
+    }
+
+    /** Wipes every table back to the same empty/seeded state a fresh install starts from -
+     * reuses [restore]'s "missing fields get seeded" behavior (default task list, 5 stats at
+     * level 1, zero Gold balance) by just handing it an all-empty [BackupData], rather than
+     * duplicating that seed logic a second time. Also deletes food photo files from internal
+     * storage, since those live on disk outside Room and would otherwise be orphaned. Meant for
+     * repeatedly starting fresh during testing - export first if the data matters. */
+    suspend fun wipeAll(context: Context) {
+        restore(BackupData(schemaVersion = AppDatabase.CURRENT_SCHEMA_VERSION, exportedAt = Instant.now().toString()))
+        File(context.filesDir, "food_photos").listFiles()?.forEach { it.delete() }
+    }
+
+    private suspend fun restore(backup: BackupData) {
         database.withTransaction {
             backup.appMeta?.let { database.appMetaDao().upsert(it) }
                 ?: database.appMetaDao().upsert(AppMeta(schemaVersion = backup.schemaVersion))

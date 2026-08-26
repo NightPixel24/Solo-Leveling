@@ -9,7 +9,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -18,14 +22,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.ui.theme.SystemRed
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -37,6 +46,7 @@ fun SettingsScreen() {
     val app = context.applicationContext as SoloLevelingApplication
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showWipeConfirm by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -68,6 +78,7 @@ fun SettingsScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -106,6 +117,23 @@ fun SettingsScreen() {
 
             HorizontalDivider()
 
+            Text("Danger Zone", style = MaterialTheme.typography.titleLarge, color = SystemRed)
+            Text(
+                "Wipes every table back to a fresh-install state (default task list, 5 stats at " +
+                    "level 1, zero Gold) and deletes logged food photos. For repeatedly starting " +
+                    "clean during testing - export a backup first if this data matters.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(
+                onClick = { showWipeConfirm = true },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = SystemRed)
+            ) {
+                Text("Clear All App Data")
+            }
+
+            HorizontalDivider()
+
             Text("About", style = MaterialTheme.typography.titleLarge)
             Text(
                 "Solo Leveling v${appVersionName(context)}",
@@ -113,6 +141,29 @@ fun SettingsScreen() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+
+    if (showWipeConfirm) {
+        AlertDialog(
+            onDismissRequest = { showWipeConfirm = false },
+            title = { Text("Clear all app data?") },
+            text = { Text("This permanently deletes every task, habit, gym log, stat, goal, and everything else on this device. This can't be undone unless you've exported a backup.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showWipeConfirm = false
+                        scope.launch {
+                            runCatching { app.backupManager.wipeAll(context) }
+                                .onSuccess { snackbarHostState.showSnackbar("All app data cleared") }
+                                .onFailure { snackbarHostState.showSnackbar("Clear failed: ${it.message}") }
+                        }
+                    }
+                ) { Text("Clear Everything", color = SystemRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWipeConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

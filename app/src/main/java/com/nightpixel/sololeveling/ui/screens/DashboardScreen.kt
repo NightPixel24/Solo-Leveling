@@ -41,6 +41,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -141,6 +144,7 @@ fun DashboardScreen(
     val xpEngine = remember { app.xpEngine }
     val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val stats by statDao.observeStats().collectAsState(initial = emptyList())
     val byTag = remember(stats) { stats.associateBy { it.tag } }
@@ -205,6 +209,26 @@ fun DashboardScreen(
                 TopAppBar(
                     title = { Text("Dashboard") },
                     actions = {
+                        // A small HUD-style corner badge rather than a full-size row on the home
+                        // content itself (which read as a prominent, out-of-place "cash" callout
+                        // right next to the Rank badge every time the screen loaded).
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.MonetizationOn,
+                                contentDescription = "Gold",
+                                tint = SystemYellow,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "${goldBalance?.balance ?: 0}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         IconButton(onClick = onPunishmentsClick) {
                             Icon(Icons.Filled.Gavel, contentDescription = "Punishment Pool")
                         }
@@ -219,14 +243,14 @@ fun DashboardScreen(
                     }
                 }
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Box(Modifier.fillMaxWidth().padding(innerPadding)) {
             when (tab) {
                 DashboardTab.HOME -> DashboardHome(
                     rank = rank,
                     onGoalsClick = onGoalsClick,
-                    goldBalance = goldBalance?.balance ?: 0,
                     orderedStats = orderedStats,
                     dailyQuests = dailyQuests,
                     weeklyQuests = weeklyQuests,
@@ -240,7 +264,15 @@ fun DashboardScreen(
                     onGoalsSummaryClick = onGoalsClick,
                     onQuickAddHabit = { showHabitPicker = true },
                     onQuickAddWater = {
-                        scope.launch { logWaterBottle(waterDao, xpEngine, todayStr, todayWaterLog) }
+                        scope.launch {
+                            val (logged, goal) = logWaterBottle(waterDao, xpEngine, todayStr, todayWaterLog)
+                            val message = if (logged >= goal && (todayWaterLog?.bottlesLogged ?: 0) >= goal) {
+                                "Daily water goal already reached ($logged/$goal cups)"
+                            } else {
+                                "Logged 1 cup ($logged/$goal)"
+                            }
+                            snackbarHostState.showSnackbar(message)
+                        }
                     },
                     onQuickAddFood = {
                         val file = createPhotoFile(context)
@@ -274,18 +306,24 @@ fun DashboardScreen(
                     Text("All daily habits are already done today.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Column(
-                        modifier = Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        modifier = Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         undoneDaily.forEach { hwl ->
-                            TextButton(
+                            Surface(
                                 onClick = {
                                     toggleToday(hwl, today, habitDao, xpEngine, goldEngine, scope)
                                     showHabitPicker = false
                                 },
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                shape = MaterialTheme.shapes.small,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(hwl.habit.title, modifier = Modifier.fillMaxWidth())
+                                Text(
+                                    hwl.habit.title,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
                             }
                         }
                     }
@@ -326,7 +364,6 @@ fun DashboardScreen(
 private fun DashboardHome(
     rank: RankTier,
     onGoalsClick: () -> Unit,
-    goldBalance: Int,
     orderedStats: List<Stat>,
     dailyQuests: List<QuestItem>,
     weeklyQuests: WeeklyQuestResult,
@@ -358,37 +395,25 @@ private fun DashboardHome(
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RankBadge(rank = rank, onClick = onGoalsClick)
-                    Column {
-                        Text("Rank", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Your life trajectory - tap to view Life Goals",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.MonetizationOn, contentDescription = null, tint = SystemYellow)
-                    Text("$goldBalance", style = MaterialTheme.typography.titleMedium)
+                RankBadge(rank = rank, onClick = onGoalsClick)
+                Column {
+                    Text("Rank", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Your life trajectory - tap to view Life Goals",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
         item {
-            RadarChart(
-                values = orderedStats.map { it.tag.name to it.level / MAX_STAT_LEVEL.toFloat() },
-                modifier = Modifier.fillMaxWidth()
-            )
+            val radarValues = remember(orderedStats) {
+                orderedStats.map { it.tag.name to it.level / MAX_STAT_LEVEL.toFloat() }
+            }
+            RadarChart(values = radarValues, modifier = Modifier.fillMaxWidth())
         }
         items(orderedStats, key = { it.tag }) { stat ->
             StatRow(stat)
@@ -415,7 +440,8 @@ private fun DashboardHome(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(Modifier.padding(12.dp)) {
                     MonthHeatmap(
@@ -467,7 +493,8 @@ private fun GoalSummaryRow(
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(tierLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
@@ -516,7 +543,10 @@ private fun DashboardAnalytics(
     ) {
         item { SectionHeader("Stat Trends (30 days)") }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LineChart(
                         series = StatTag.entries.map { tag ->
@@ -542,7 +572,10 @@ private fun DashboardAnalytics(
             }
         } else {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         habitStats.forEach { stat -> HabitCompletionRow(stat) }
                     }
@@ -552,7 +585,10 @@ private fun DashboardAnalytics(
 
         item { SectionHeader("Gym Volume (8 weeks)") }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     VolumeBarChart(volume)
                     if (prExercises.isNotEmpty()) {
@@ -574,7 +610,10 @@ private fun DashboardAnalytics(
 
         item { SectionHeader("Mood This Month") }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MoodDistributionBars(moodDist)
                 }
@@ -583,7 +622,10 @@ private fun DashboardAnalytics(
 
         item { SectionHeader("Good Weeks") }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     GoodWeekRow(goodWeeks)
                     Text(
@@ -691,7 +733,10 @@ private fun SectionHeader(title: String) {
 
 @Composable
 private fun QuestList(quests: List<QuestItem>) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             quests.forEach { quest -> QuestRow(quest) }
         }
@@ -717,7 +762,10 @@ private fun QuestRow(quest: QuestItem) {
 
 @Composable
 private fun WeeklyQuestCard(items: List<QuestItem>, goodWeek: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items.forEach { quest -> QuestRow(quest) }
             if (goodWeek) {
@@ -730,7 +778,10 @@ private fun WeeklyQuestCard(items: List<QuestItem>, goodWeek: Boolean) {
 @Composable
 private fun DashboardBossRow(boss: Boss, currentBest: Double) {
     val progress = if (boss.targetWeight > 0) (currentBest / boss.targetWeight).toFloat().coerceIn(0f, 1f) else 0f
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(boss.name, style = MaterialTheme.typography.titleMedium)
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = SystemRed)

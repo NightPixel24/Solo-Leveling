@@ -13,6 +13,11 @@ interface WaterDao {
     @Query("SELECT * FROM water_logs WHERE date = :date")
     fun observeLog(date: String): Flow<WaterLog?>
 
+    /** One-shot equivalent of [observeLog] - used to decide whether today's row needs seeding
+     * without racing `collectAsState`'s synthetic `initial = null` value (see WaterScreen.kt). */
+    @Query("SELECT * FROM water_logs WHERE date = :date")
+    suspend fun getLogOnce(date: String): WaterLog?
+
     /** Used by the Dashboard's Weekly Quests (spec Section 5.4) to check "hit water goal N/7
      * days" across the whole week, not just today. */
     @Query("SELECT * FROM water_logs")

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
@@ -181,7 +183,8 @@ fun TasksScreen() {
     }
 
     if (showAddTaskDialog && currentList != null) {
-        AddTaskDialog(
+        TaskEditorDialog(
+            dialogTitle = "New Task",
             onDismiss = { showAddTaskDialog = false },
             onConfirm = { title, dueDate, priority, notes ->
                 scope.launch {
@@ -284,6 +287,7 @@ private fun TaskListContent(
     modifier: Modifier = Modifier
 ) {
     val tasks by taskDao.observeTasksForList(listId).collectAsState(initial = emptyList())
+    var editingTask by remember { mutableStateOf<Task?>(null) }
 
     if (tasks.isEmpty()) {
         Box(modifier, contentAlignment = Alignment.Center) {
@@ -301,6 +305,7 @@ private fun TaskListContent(
             items(tasks, key = { it.task.id }) { taskWithSubtasks ->
                 TaskCard(
                     taskWithSubtasks = taskWithSubtasks,
+                    onEdit = { editingTask = taskWithSubtasks.task },
                     onToggleDone = {
                         val task = taskWithSubtasks.task
                         val nowDone = !task.isDone
@@ -339,6 +344,20 @@ private fun TaskListContent(
             }
         }
     }
+
+    editingTask?.let { task ->
+        TaskEditorDialog(
+            dialogTitle = "Edit Task",
+            initial = task,
+            onDismiss = { editingTask = null },
+            onConfirm = { newTitle, dueDate, priority, notes ->
+                scope.launch {
+                    taskDao.updateTask(task.copy(title = newTitle, dueDate = dueDate, priority = priority, notes = notes))
+                }
+                editingTask = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -374,6 +393,7 @@ private fun ListNameDialog(
 @Composable
 private fun TaskCard(
     taskWithSubtasks: TaskWithSubtasks,
+    onEdit: () -> Unit,
     onToggleDone: () -> Unit,
     onDelete: () -> Unit,
     onToggleSubtask: (Subtask) -> Unit,
@@ -428,6 +448,9 @@ private fun TaskCard(
                         )
                     }
                 }
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Edit task")
+                }
                 IconButton(onClick = { expanded = !expanded }) {
                     Icon(
                         if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
@@ -465,24 +488,51 @@ private fun TaskCard(
     }
 }
 
+/** Collapsed to a low-emphasis text row by default rather than an always-visible outlined text
+ * field + button - a full input control sitting in every expanded task card, whether or not the
+ * user actually wants to add a subtask right then, was too visually loud next to the task list
+ * above it. Tapping it swaps in the real input, same as before. */
 @Composable
 private fun AddSubtaskRow(onAdd: (String) -> Unit) {
+    var adding by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            placeholder = { Text("Add subtask", style = MaterialTheme.typography.bodySmall) },
-            singleLine = true,
-            modifier = Modifier.weight(1f)
-        )
-        IconButton(onClick = {
-            if (text.isNotBlank()) {
-                onAdd(text.trim())
-                text = ""
+
+    if (adding) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                placeholder = { Text("Subtask title", style = MaterialTheme.typography.bodySmall) },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = {
+                if (text.isNotBlank()) {
+                    onAdd(text.trim())
+                    text = ""
+                }
+                adding = false
+            }) {
+                Icon(Icons.Filled.Add, contentDescription = "Confirm add subtask")
             }
-        }) {
-            Icon(Icons.Filled.Add, contentDescription = "Add subtask")
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { adding = true }.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                Icons.Filled.Add,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                "Add subtask",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -507,21 +557,25 @@ private fun PriorityChip(priority: Priority) {
     }
 }
 
+/** Used both to create a new task and (pre-filled from an existing one) to edit it - the two
+ * flows collect the exact same fields, so there's no reason to keep separate dialogs in sync. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddTaskDialog(
+private fun TaskEditorDialog(
+    dialogTitle: String,
+    initial: Task? = null,
     onDismiss: () -> Unit,
     onConfirm: (title: String, dueDate: Long?, priority: Priority, notes: String) -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
-    var priority by remember { mutableStateOf(Priority.MEDIUM) }
-    var dueDate by remember { mutableStateOf<Long?>(null) }
+    var title by remember { mutableStateOf(initial?.title ?: "") }
+    var notes by remember { mutableStateOf(initial?.notes ?: "") }
+    var priority by remember { mutableStateOf(initial?.priority ?: Priority.MEDIUM) }
+    var dueDate by remember { mutableStateOf(initial?.dueDate) }
     var showDatePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Task") },
+        title = { Text(dialogTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -556,7 +610,7 @@ private fun AddTaskDialog(
             TextButton(
                 onClick = { if (title.isNotBlank()) onConfirm(title.trim(), dueDate, priority, notes.trim()) },
                 enabled = title.isNotBlank()
-            ) { Text("Add") }
+            ) { Text(if (initial == null) "Add" else "Save") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
