@@ -1048,6 +1048,31 @@ final `adb logcat *:E` sweep on the emulator showed no new app crashes (the same
 `FrameTracker` IME-animation timeout and the earlier `NotifAttentionHelper` noise from the tenth
 pass's own notification testing, not from this pass).
 
+**Twelfth feedback pass (2026-08-30, v1.7.0 -> v1.7.1)**: two quick follow-ups to the eleventh
+pass, resolving its own flagged ambiguity. No schema change.
+- **Mood heatmap moved from Home to Analytics** (user feedback: "move mood calendar on the home
+  screen to the analytics tab") - confirms the eleventh pass's guess was wrong; the heatmap itself
+  (not just the distribution bars Analytics already had) is what the user meant by "this month
+  calendar." `MonthHeatmap` now sits inside Analytics' existing "Mood This Month" card, above the
+  `MoodDistributionBars` it already had, rather than as a second separate section - one header for
+  both mood visualizations. `DashboardHome` lost its `currentMonth`/`moodEntriesByDate`/
+  `onMoodClick` params entirely (no longer needed there - `onTickMood` in the Coming Up Today
+  checklist already carries the same callback independently); `DashboardAnalytics` computes
+  `moodEntriesByDate` itself from the `moodEntries` list it already received, rather than a new
+  passed-in map.
+- **Gym tabs reordered to Routine/Workouts/Calendar** (user feedback: "put routine first then
+  workouts then calendar") - a plain `GymTab` enum reorder (Kotlin's `entries` preserves
+  declaration order, so this alone reorders the `TabRow` with no other code changes needed) plus
+  moving the screen's default initial tab from Workouts to Routine, matching the bottom-nav
+  Routine tab's own "opens on Schedule first" precedent from the fifth feedback pass.
+Verified on the `SoloLeveling_Pixel6` emulator (plain `installDebug`, no schema change): Gym now
+opens on Routine with tabs ordered Routine/Workouts/Calendar; Analytics' "Mood This Month" card
+shows the heatmap directly above the Good/OK/Bad bars; scrolled the Home tab end-to-end and
+confirmed no mood section remains there (Stats is now the last section before Quick Add's outcome
+takes over the scroll). Also installed to the user's real Pixel 7. A final `adb logcat *:E` sweep
+showed no new app crashes (same benign `FrameTracker`/`NotifAttentionHelper` entries seen
+throughout this session).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

@@ -366,9 +366,6 @@ fun DashboardScreen(
                     dailyHabitsTotal = dailyHabits.size,
                     goals = goals,
                     allTasks = allTasks,
-                    currentMonth = currentMonth,
-                    moodEntriesByDate = remember(moodEntries) { moodEntries.associateBy { it.date } },
-                    onMoodClick = onMoodClick,
                     onGymClick = onGymClick,
                     onGoalsSummaryClick = onGoalsClick,
                     onQuickAddTask = { showTaskQuickAdd = true },
@@ -406,7 +403,8 @@ fun DashboardScreen(
                     bodyStatEntries = bodyStatEntries,
                     splitDays = splitDays,
                     workoutsByDate = workoutsByDate,
-                    onGymClick = onGymClick
+                    onGymClick = onGymClick,
+                    onMoodClick = onMoodClick
                 )
             }
         }
@@ -548,9 +546,6 @@ private fun DashboardHome(
     dailyHabitsTotal: Int,
     goals: List<Goal>,
     allTasks: List<Task>,
-    currentMonth: YearMonth,
-    moodEntriesByDate: Map<String, MoodEntry>,
-    onMoodClick: () -> Unit,
     onGymClick: () -> Unit,
     onGoalsSummaryClick: () -> Unit,
     onQuickAddTask: () -> Unit,
@@ -621,22 +616,6 @@ private fun DashboardHome(
         }
         items(orderedStats, key = { it.tag }) { stat ->
             StatRow(stat)
-        }
-        item { SectionHeader("Mood This Month") }
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(0.dp)
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    MonthHeatmap(
-                        month = currentMonth,
-                        entriesByDate = moodEntriesByDate,
-                        onDayClick = { onMoodClick() }
-                    )
-                }
-            }
         }
         if (tierGoals.isNotEmpty()) {
             item { SectionHeader("Life Goals") }
@@ -1266,11 +1245,13 @@ private fun DashboardAnalytics(
     bodyStatEntries: List<BodyStatEntry>,
     splitDays: List<SplitDay>,
     workoutsByDate: Map<LocalDate, SplitDay>,
-    onGymClick: () -> Unit
+    onGymClick: () -> Unit,
+    onMoodClick: () -> Unit
 ) {
     val trends = remember(xpLogs, today) { statXpTrends(xpLogs, today) }
     val habitStats = remember(habitsWithLogs, today) { habitCompletionRates(habitsWithLogs, today) }
     val volume = remember(exercisesWithSessions, today) { gymVolumeByWeek(exercisesWithSessions, today) }
+    val moodEntriesByDate = remember(moodEntries) { moodEntries.associateBy { it.date } }
     val moodDist = remember(moodEntries, currentMonth) { moodDistributionForMonth(moodEntries, currentMonth) }
     val foodDist = remember(foodEntries, currentMonth) { foodHealthDistributionForMonth(foodEntries, currentMonth) }
     val goodWeeks = remember(habitsWithLogs, exercisesWithSessions, waterLogsByDate, today) {
@@ -1372,13 +1353,21 @@ private fun DashboardAnalytics(
             }
         }
 
+        // Moved here from the Home tab (user feedback, 2026-08-30: "move mood calendar on the
+        // home screen to the analytics tab") - sits above the distribution bars this section
+        // already had, both under the one "Mood This Month" header rather than two.
         item { SectionHeader("Mood This Month") }
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(0.dp)
             ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MonthHeatmap(
+                        month = currentMonth,
+                        entriesByDate = moodEntriesByDate,
+                        onDayClick = { onMoodClick() }
+                    )
                     MoodDistributionBars(moodDist)
                 }
             }

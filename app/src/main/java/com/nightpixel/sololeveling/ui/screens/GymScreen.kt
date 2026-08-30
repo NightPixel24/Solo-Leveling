@@ -83,7 +83,7 @@ import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
 
-private enum class GymTab(val label: String) { WORKOUTS("Workouts"), ROUTINE("Routine"), CALENDAR("Calendar") }
+private enum class GymTab(val label: String) { ROUTINE("Routine"), WORKOUTS("Workouts"), CALENDAR("Calendar") }
 
 /** Exercises are grouped under user-defined [SplitDay]s ("Back Day", "Chest and Shoulders", ...) -
  * called "Workouts" in the UI (renamed from "Split Day"/"Routine", user feedback, 2026-08-30) -
@@ -112,7 +112,7 @@ fun GymScreen() {
     val splitDays by splitDayDao.observeSplitDays().collectAsState(initial = emptyList())
     val scheduledWorkouts by scheduledWorkoutDao.observeAll().collectAsState(initial = emptyList())
 
-    var tab by remember { mutableStateOf(GymTab.WORKOUTS) }
+    var tab by remember { mutableStateOf(GymTab.ROUTINE) }
     var showAddDayDialog by remember { mutableStateOf(false) }
     var editDayTarget by remember { mutableStateOf<SplitDay?>(null) }
     var deleteDayTarget by remember { mutableStateOf<SplitDay?>(null) }
