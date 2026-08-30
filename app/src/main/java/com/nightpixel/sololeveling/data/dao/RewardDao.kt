@@ -7,29 +7,12 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
-import com.nightpixel.sololeveling.data.entity.GoldBalance
-import com.nightpixel.sololeveling.data.entity.GoldTransaction
+import com.nightpixel.sololeveling.data.entity.RewardInventoryItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
-import com.nightpixel.sololeveling.data.entity.RewardTarget
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RewardDao {
-    @Query("SELECT * FROM gold_balance WHERE id = 0")
-    fun observeBalance(): Flow<GoldBalance?>
-
-    @Query("SELECT * FROM gold_balance WHERE id = 0")
-    suspend fun getBalanceOnce(): GoldBalance?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertBalance(balance: GoldBalance)
-
-    @Insert
-    suspend fun insertTransaction(transaction: GoldTransaction)
-
-    @Query("SELECT * FROM gold_transactions ORDER BY timestamp DESC")
-    fun observeTransactions(): Flow<List<GoldTransaction>>
-
     @Query("SELECT * FROM reward_pool_items ORDER BY createdAt ASC")
     fun observePoolItems(): Flow<List<RewardPoolItem>>
 
@@ -39,57 +22,38 @@ interface RewardDao {
     @Delete
     suspend fun deletePoolItem(item: RewardPoolItem)
 
-    /** [OnConflictStrategy.REPLACE] against [RewardTarget]'s unique (pool, periodStart) index -
-     * picking a new target for a period you've already picked one for replaces it. */
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertTarget(target: RewardTarget)
+    @Query("SELECT * FROM reward_inventory ORDER BY claimedAt DESC")
+    fun observeInventory(): Flow<List<RewardInventoryItem>>
+
+    @Insert
+    suspend fun insertInventoryItem(item: RewardInventoryItem): Long
 
     @Update
-    suspend fun updateTarget(target: RewardTarget)
-
-    @Query("SELECT * FROM reward_targets ORDER BY periodStart DESC")
-    fun observeTargets(): Flow<List<RewardTarget>>
-
-    @Query("SELECT * FROM gold_transactions")
-    suspend fun getAllTransactionsOnce(): List<GoldTransaction>
+    suspend fun updateInventoryItem(item: RewardInventoryItem)
 
     @Query("SELECT * FROM reward_pool_items")
     suspend fun getAllPoolItemsOnce(): List<RewardPoolItem>
 
-    @Query("SELECT * FROM reward_targets")
-    suspend fun getAllTargetsOnce(): List<RewardTarget>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTransactions(transactions: List<GoldTransaction>)
+    @Query("SELECT * FROM reward_inventory")
+    suspend fun getAllInventoryOnce(): List<RewardInventoryItem>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPoolItems(items: List<RewardPoolItem>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTargets(targets: List<RewardTarget>)
-
-    @Query("DELETE FROM gold_transactions")
-    suspend fun clearTransactions()
+    suspend fun insertInventoryItems(items: List<RewardInventoryItem>)
 
     @Query("DELETE FROM reward_pool_items")
     suspend fun clearPoolItems()
 
-    @Query("DELETE FROM reward_targets")
-    suspend fun clearTargets()
+    @Query("DELETE FROM reward_inventory")
+    suspend fun clearInventory()
 
     @Transaction
-    suspend fun replaceAll(
-        balance: GoldBalance,
-        transactions: List<GoldTransaction>,
-        poolItems: List<RewardPoolItem>,
-        targets: List<RewardTarget>
-    ) {
-        clearTargets()
+    suspend fun replaceAll(poolItems: List<RewardPoolItem>, inventory: List<RewardInventoryItem>) {
+        clearInventory()
         clearPoolItems()
-        clearTransactions()
-        upsertBalance(balance)
         insertPoolItems(poolItems)
-        insertTransactions(transactions)
-        insertTargets(targets)
+        insertInventoryItems(inventory)
     }
 }

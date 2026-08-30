@@ -56,7 +56,6 @@ import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.HabitLog
 import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.StatTag
-import com.nightpixel.sololeveling.data.gamification.GoldEngine
 import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.data.gamification.applyVitalityMultiplier
 import com.nightpixel.sololeveling.ui.components.StatChip
@@ -80,7 +79,6 @@ fun HabitsTab(showAddDialog: Boolean, onDismissAddDialog: () -> Unit, modifier: 
     val habitDao = remember { app.database.habitDao() }
     val foodDao = remember { app.database.foodDao() }
     val xpEngine = remember { app.xpEngine }
-    val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
 
     val habits by habitDao.observeHabitsWithLogs().collectAsState(initial = emptyList())
@@ -111,7 +109,7 @@ fun HabitsTab(showAddDialog: Boolean, onDismissAddDialog: () -> Unit, modifier: 
                     HabitRow(
                         habitWithLogs = habitWithLogs,
                         today = today,
-                        onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, goldEngine, scope) },
+                        onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, scope) },
                         onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
                     )
                 }
@@ -122,7 +120,7 @@ fun HabitsTab(showAddDialog: Boolean, onDismissAddDialog: () -> Unit, modifier: 
                     HabitRow(
                         habitWithLogs = habitWithLogs,
                         today = today,
-                        onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, goldEngine, scope) },
+                        onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, scope) },
                         onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
                     )
                 }
@@ -142,14 +140,13 @@ fun HabitsTab(showAddDialog: Boolean, onDismissAddDialog: () -> Unit, modifier: 
 }
 
 /** Not private - reused by the Dashboard's habit quick-add (spec Section 6) so checking a habit
- * off from either place grants XP/Gold identically. */
+ * off from either place grants XP identically. */
 fun toggleToday(
     habitWithLogs: HabitWithLogs,
     today: LocalDate,
     habitDao: HabitDao,
     foodDao: FoodDao,
     xpEngine: XpEngine,
-    goldEngine: GoldEngine,
     scope: CoroutineScope
 ) {
     val habit = habitWithLogs.habit
@@ -164,9 +161,6 @@ fun toggleToday(
             // every other VIT source (water goal, food logged).
             val xpAmount = if (habit.statTag == StatTag.VIT) applyVitalityMultiplier(foodDao, 10) else 10
             xpEngine.grant(habit.statTag, xpAmount, "Habit: ${habit.title}")
-            // Spec Section 5.7 - "habits and gym completions grant Gold in addition to stat XP,
-            // e.g. 1 Gold per 10 XP" - derived straight from the XP just granted.
-            goldEngine.grantFromXp(xpAmount, "Habit: ${habit.title}")
         }
     }
 }

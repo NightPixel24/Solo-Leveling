@@ -50,7 +50,6 @@ import com.nightpixel.sololeveling.data.entity.DayPart
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.RoutineItem
-import com.nightpixel.sololeveling.data.gamification.GoldEngine
 import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.ui.components.StatChip
 import kotlinx.coroutines.CoroutineScope
@@ -73,7 +72,6 @@ fun RoutineScreen() {
     val habitDao = remember { app.database.habitDao() }
     val foodDao = remember { app.database.foodDao() }
     val xpEngine = remember { app.xpEngine }
-    val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
 
     val items by routineDao.observeItems().collectAsState(initial = emptyList())
@@ -120,7 +118,6 @@ fun RoutineScreen() {
                 habitDao = habitDao,
                 foodDao = foodDao,
                 xpEngine = xpEngine,
-                goldEngine = goldEngine,
                 scope = scope,
                 onDelete = { item -> scope.launch { routineDao.delete(item) } }
             )
@@ -154,7 +151,6 @@ private fun ScheduleTab(
     habitDao: HabitDao,
     foodDao: FoodDao,
     xpEngine: XpEngine,
-    goldEngine: GoldEngine,
     scope: CoroutineScope,
     onDelete: (RoutineItem) -> Unit
 ) {
@@ -184,7 +180,7 @@ private fun ScheduleTab(
                         habitWithLogs = item.habitId?.let { habitsById[it] },
                         today = today,
                         onToggleHabit = { hwl ->
-                            toggleToday(hwl, today, habitDao, foodDao, xpEngine, goldEngine, scope)
+                            toggleToday(hwl, today, habitDao, foodDao, xpEngine, scope)
                         },
                         onDelete = { onDelete(item) }
                     )

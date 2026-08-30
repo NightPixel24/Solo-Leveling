@@ -791,6 +791,65 @@ view and confirmed both the chart's "not enough readings" fallback and the main 
 updated correctly afterward. A final `adb logcat *:E` sweep showed no crashes (only the same benign
 `FrameTracker` IME-animation timeout seen throughout this session).
 
+**Seventh feedback pass (2026-08-30, v1.4.1 -> v1.5.0)**: currency removed from the Reward Economy
+entirely (user feedback: "get rid of currency all together keep the rewards section... the
+currency system was to complex"), replaced with a Minor/Major severity split - deliberately
+mirroring the Punishment Pool's own Minor/Major split (`PunishmentSeverity` reused directly, same
+`SeverityChip` visual language) for the opposite direction, a payoff instead of a debt. Schema
+v17->v18 (`AppDatabase.MIGRATION_17_18`).
+- **Gold is gone**: `GoldBalance`/`GoldTransaction` entities, `GoldEngine`, and every grant call
+  site (`HabitsScreen`'s `toggleToday`, `GymScreen`'s session-log confirm, the Dashboard's "$"
+  top-bar badge) all deleted outright - same "don't leave unused scaffolding around" stance this
+  codebase already took for the Boss Fights removal. `RewardTarget` (the old "pick one reward as
+  your period's target, earn Gold toward its cost" flow) is gone too, replaced below.
+- **Two live-computed eligibility windows** (`data/gamification/Rewards.kt`), no persisted "unlock"
+  flag: a good week unlocks exactly one Minor claim the following week ("Having a good week means
+  in the following week I can claim 1 minor reward... at any time") - `wasLastWeekGood` reuses
+  `computeWeeklyQuests`'s exact "good week" definition against the single week before this one; 3
+  good weeks in the trailing 4 unlocks one Major claim this month ("After 3 good weeks in a month I
+  can claim a major reward") - reuses `countGoodWeeksInLastN` unchanged, the same rolling-4-week
+  simplification the old Gold-based Monthly-pool unlock already made (calendar months don't divide
+  evenly into Monday-Sunday weeks, flagged as a carried-over interpretation, not a new assumption).
+  `claimedMinorThisWeek`/`claimedMajorThisMonth` cap each to one claim per calendar week/month once
+  eligible, checked against the new inventory below rather than a separate "already claimed" flag.
+- **Claiming files a reward into a new inventory** (user feedback: "have an inventory to store my
+  rewards in and when i 'use' them from my inventory that means i claimed it in real life") -
+  `RewardInventoryItem` (title/severity snapshotted at claim time, not an FK to the pool item -
+  deliberately unlike `PunishmentAssignment`'s FK+cascade precedent, since a reward already sitting
+  in your inventory shouldn't vanish or go stale just because you later edit/delete that pool
+  item's definition). `usedAt` null = pending in Inventory; set = History, the same dual-state role
+  `PunishmentAssignment.resolved` already plays for Debts. `RewardPoolItem` keeps its `title` but
+  swaps `cost`/`pool` for `severity: PunishmentSeverity` - the migration rebuilds the table
+  (create-copy-drop-rename) and maps existing rows' old `pool` value (WEEKLY -> MINOR, MONTHLY ->
+  MAJOR, the closest analogue: Weekly was the smaller/frequent pool, Minor is the smaller/frequent
+  tier) rather than wiping the user's own reward titles; `gold_balance`/`gold_transactions`/
+  `reward_targets` are dropped outright with no data preserved, since a Gold ledger and past
+  claimed-target picks don't mean anything under the new system.
+- **`RewardsScreen.kt` rewritten**: "This Week"/"This Month" eligibility cards (status text +
+  Claim button once eligible) at the top, an Inventory section (pending items with a "Use" button),
+  Minor/Major pool-management sections below that (mirroring `PunishmentScreen`'s own Pool section
+  almost exactly), and a History section for used items. Claiming opens a picker of that severity's
+  pool items (same `Surface`-row picker pattern `TitlePickerDialog`/`AddRoutineItemDialog`'s habit
+  picker already use); the "New Reward" dialog is now just a title field plus a Minor/Major
+  `FilterChip` pair - no cost field at all.
+No bugs found this pass.
+Verified on both the `SoloLeveling_Pixel6` emulator and the user's real Pixel 7 (phone had
+reconnected and unlocked mid-session) - all 18 `connectedDebugAndroidTest` cases passed on *both*
+devices simultaneously (`Starting 18 tests on SoloLeveling_Pixel6(AVD)` and `Starting 18 tests on
+Pixel 7`, both confirmed via `adb logcat`'s `run finished: 18 tests, 0 failed` on each), including
+the new `migrate17To18` (seeds a real Weekly-pool reward row and a gold_balance row, asserts the
+reward survived re-shaped to `severity = 'MINOR'` and that `gold_balance`/`gold_transactions`/
+`reward_targets` are all gone from `sqlite_master` afterward). Manual pass on the emulator: cold
+start confirmed no crash and no "$" badge anywhere in the Dashboard top bar; Rewards screen showed
+"Last week wasn't a good week" / "0/4 good weeks recently - need 3 to unlock" with no Claim buttons
+(correct - this test data has no good weeks), confirming the eligibility gates read real data, not
+a hardcoded unlocked state; added a Minor reward ("Coffee treat") via the cost-free "New Reward"
+dialog and confirmed it appeared correctly under "Minor Pool" with a yellow MINOR chip. The real
+Pixel 7's own v17->v18 migration (against genuine multi-week-old data, not fresh test data) also
+completed with no crash and rendered the same clean Rewards screen. A final `adb logcat *:E` sweep
+on both devices showed no crashes (only the same benign `FrameTracker` IME-animation timeout seen
+throughout this session).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

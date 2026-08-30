@@ -30,8 +30,6 @@ import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
 import com.nightpixel.sololeveling.data.entity.Goal
-import com.nightpixel.sololeveling.data.entity.GoldBalance
-import com.nightpixel.sololeveling.data.entity.GoldTransaction
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
@@ -39,8 +37,8 @@ import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.PlayerProfile
 import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
+import com.nightpixel.sololeveling.data.entity.RewardInventoryItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
-import com.nightpixel.sololeveling.data.entity.RewardTarget
 import com.nightpixel.sololeveling.data.entity.RoutineItem
 import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
@@ -63,10 +61,10 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         CalendarEventCache::class, MoodEntry::class, FoodLogEntry::class, WaterLog::class,
         Goal::class, Stat::class, XpLog::class,
         PunishmentPoolItem::class, PunishmentAssignment::class,
-        GoldBalance::class, GoldTransaction::class, RewardPoolItem::class, RewardTarget::class,
+        RewardPoolItem::class, RewardInventoryItem::class,
         PlayerProfile::class, SplitDay::class, RoutineItem::class, BodyStatEntry::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -90,7 +88,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun healthDao(): HealthDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 17
+        const val CURRENT_SCHEMA_VERSION = 18
         private const val DB_NAME = "solo_leveling.db"
 
         /** Fresh installs get a single protected "Daily" list (user feedback, 2026-08-26: "make
@@ -610,6 +608,58 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Removes currency entirely (user feedback, 2026-08-30: "get rid of currency all together
+         * keep the rewards section... the currency system was to complex") - `gold_balance`,
+         * `gold_transactions`, and `reward_targets` (the old Gold-cost/pick-a-target flow) are
+         * dropped outright, same "don't leave unused scaffolding around" approach the Boss Fights
+         * removal (`MIGRATION_15_16`) already used for this codebase's DB layer; their historical
+         * rows (a Gold ledger, past claimed-target picks) don't mean anything under the new
+         * severity-based system, so there's nothing worth preserving there. `reward_pool_items`
+         * does keep its existing rows though - the user's own reward titles are still meaningful,
+         * just re-shaped: `cost`/`pool` (WEEKLY/MONTHLY) are replaced by `severity`
+         * (MINOR/MAJOR, [PunishmentSeverity] reused from the Punishment Pool's identical split),
+         * mapped WEEKLY->MINOR and MONTHLY->MAJOR since that's the closest analogue (Weekly was
+         * the smaller/frequent pool, Minor is the smaller/frequent tier). New `reward_inventory`
+         * table holds rewards actually claimed, pending "use" (see [RewardInventoryItem]'s doc
+         * comment for why it snapshots title/severity rather than an FK to the pool item). */
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS gold_balance")
+                db.execSQL("DROP TABLE IF EXISTS gold_transactions")
+                db.execSQL("DROP TABLE IF EXISTS reward_targets")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE reward_pool_items_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        title TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "INSERT INTO reward_pool_items_new (id, title, severity, createdAt) " +
+                        "SELECT id, title, CASE WHEN pool = 'WEEKLY' THEN 'MINOR' ELSE 'MAJOR' END, createdAt " +
+                        "FROM reward_pool_items"
+                )
+                db.execSQL("DROP TABLE reward_pool_items")
+                db.execSQL("ALTER TABLE reward_pool_items_new RENAME TO reward_pool_items")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS reward_inventory (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        title TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        claimedAt INTEGER NOT NULL,
+                        usedAt INTEGER
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -624,7 +674,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                         MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
-                        MIGRATION_16_17
+                        MIGRATION_16_17, MIGRATION_17_18
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
@@ -633,7 +683,6 @@ abstract class AppDatabase : RoomDatabase() {
                             // MIGRATION_13_14's inserts, so seed here instead.
                             db.execSQL(seedDefaultListSql())
                             StatTag.entries.forEach { db.execSQL(seedStatSql(it)) }
-                            db.execSQL("INSERT INTO gold_balance (id, balance) VALUES (0, 0)")
                             db.execSQL("INSERT INTO player_profile (id, name, equippedTitleId) VALUES (0, 'Hunter', NULL)")
                         }
                     })

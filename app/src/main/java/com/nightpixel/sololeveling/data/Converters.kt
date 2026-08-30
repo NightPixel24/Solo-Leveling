@@ -11,7 +11,6 @@ import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.MoodColor
 import com.nightpixel.sololeveling.data.entity.Priority
 import com.nightpixel.sololeveling.data.entity.PunishmentSeverity
-import com.nightpixel.sololeveling.data.entity.RewardPool
 import com.nightpixel.sololeveling.data.entity.StatTag
 
 class Converters {
@@ -62,12 +61,6 @@ class Converters {
 
     @TypeConverter
     fun toPunishmentSeverity(value: String): PunishmentSeverity = PunishmentSeverity.valueOf(value)
-
-    @TypeConverter
-    fun fromRewardPool(pool: RewardPool): String = pool.name
-
-    @TypeConverter
-    fun toRewardPool(value: String): RewardPool = RewardPool.valueOf(value)
 
     @TypeConverter
     fun fromFoodRating(rating: FoodRating): String = rating.name

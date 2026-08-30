@@ -202,23 +202,53 @@ class MigrationTest {
         }
     }
 
+    /** Seeds a real Weekly reward pool item (plus a gold_balance/reward_targets row) before
+     * migrating, so the currency removal (user feedback, 2026-08-30: "get rid of currency all
+     * together... the currency system was to complex") is exercised against actual data: the
+     * existing reward title should survive, re-shaped from cost/pool to severity
+     * (WEEKLY -> MINOR), while gold_balance/gold_transactions/reward_targets should be gone. */
+    @Test
+    fun migrate17To18() {
+        val db = helper.createDatabase(dbName, 17)
+        db.execSQL(
+            "INSERT INTO reward_pool_items (id, title, cost, pool, createdAt) " +
+                "VALUES (1, 'Movie Night', 50, 'WEEKLY', 0)"
+        )
+        db.execSQL("INSERT INTO gold_balance (id, balance) VALUES (0, 100)")
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 18, true, AppDatabase.MIGRATION_17_18)
+
+        migrated.query("SELECT title, severity FROM reward_pool_items WHERE id = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("Movie Night", cursor.getString(0))
+            assertEquals("MINOR", cursor.getString(1))
+        }
+        migrated.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN " +
+                "('gold_balance', 'gold_transactions', 'reward_targets')"
+        ).use { cursor ->
+            assertEquals(0, cursor.count)
+        }
+    }
+
     /** The full chain a real device upgrading from the very first release runs through, plus a
      * sanity read through Room's own generated DAOs (not just raw-SQL schema validation) to
      * confirm the fully-migrated database is actually usable - the seeded rows MIGRATION_2_3,
      * MIGRATION_9_10, MIGRATION_12_13, MIGRATION_13_14 and MIGRATION_14_15 insert should have
      * survived the whole chain, no stats row should still carry the old 'AGILITY' tag, and the
-     * bosses table dropped by MIGRATION_15_16 should be gone. */
+     * bosses/gold_balance/gold_transactions/reward_targets tables dropped along the way should
+     * all be gone. */
     @Test
     fun migrateAllStepsAndOpenWithRoom() {
         helper.createDatabase(dbName, 1).close()
         helper.runMigrationsAndValidate(
-            dbName, 17, true,
+            dbName, 18, true,
             AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
             AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
             AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
-            AppDatabase.MIGRATION_16_17
+            AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18
         )
 
         val db = Room.databaseBuilder(
@@ -232,7 +262,7 @@ class MigrationTest {
                 AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
                 AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
-                AppDatabase.MIGRATION_16_17
+                AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18
             )
             .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .build()

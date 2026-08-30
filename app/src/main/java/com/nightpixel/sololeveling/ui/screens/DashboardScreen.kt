@@ -190,12 +190,10 @@ fun DashboardScreen(
     val moodDao = remember { app.database.moodDao() }
     val foodDao = remember { app.database.foodDao() }
     val taskDao = remember { app.database.taskDao() }
-    val rewardDao = remember { app.database.rewardDao() }
     val playerProfileDao = remember { app.database.playerProfileDao() }
     val splitDayDao = remember { app.database.splitDayDao() }
     val healthDao = remember { app.database.healthDao() }
     val xpEngine = remember { app.xpEngine }
-    val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -229,7 +227,6 @@ fun DashboardScreen(
     val moodEntries by moodDao.observeEntries().collectAsState(initial = emptyList())
     val foodEntries by foodDao.observeEntries().collectAsState(initial = emptyList())
     val allTasks by taskDao.observeAllTasks().collectAsState(initial = emptyList())
-    val goldBalance by rewardDao.observeBalance().collectAsState(initial = null)
     val xpLogs by statDao.observeXpLogs().collectAsState(initial = emptyList())
     val waterLogsByDate = remember(allWaterLogs) { allWaterLogs.associateBy { it.date } }
     val splitDays by splitDayDao.observeSplitDays().collectAsState(initial = emptyList())
@@ -285,22 +282,6 @@ fun DashboardScreen(
                 TopAppBar(
                     title = { Text("Dashboard") },
                     actions = {
-                        // A small HUD-style corner badge rather than a full-size row on the home
-                        // content itself (which read as a prominent, out-of-place "cash" callout
-                        // right next to the Rank badge every time the screen loaded).
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(end = 4.dp)
-                        ) {
-                            // Plain "$" text rather than a MonetizationOn icon (user feedback,
-                            // 2026-08-26: the coin icon "looks cheap and doesn't fit the theme") -
-                            // still styled to match the HUD-badge treatment, just no icon glyph.
-                            Text(
-                                "$${goldBalance?.balance ?: 0}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = SystemYellow
-                            )
-                        }
                         // Life Goals moved here from the Rank badge (user feedback, 2026-08-26) -
                         // grouped with the other screens that only live behind a top-bar icon.
                         IconButton(onClick = onGoalsClick) {
@@ -403,7 +384,7 @@ fun DashboardScreen(
                         undoneDaily.forEach { hwl ->
                             Surface(
                                 onClick = {
-                                    toggleToday(hwl, today, habitDao, foodDao, xpEngine, goldEngine, scope)
+                                    toggleToday(hwl, today, habitDao, foodDao, xpEngine, scope)
                                     showHabitPicker = false
                                 },
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),

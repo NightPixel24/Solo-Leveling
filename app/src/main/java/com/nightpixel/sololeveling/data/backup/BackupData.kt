@@ -6,8 +6,6 @@ import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
 import com.nightpixel.sololeveling.data.entity.Goal
-import com.nightpixel.sololeveling.data.entity.GoldBalance
-import com.nightpixel.sololeveling.data.entity.GoldTransaction
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.Habit
 import com.nightpixel.sololeveling.data.entity.HabitLog
@@ -15,8 +13,8 @@ import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.PlayerProfile
 import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
+import com.nightpixel.sololeveling.data.entity.RewardInventoryItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
-import com.nightpixel.sololeveling.data.entity.RewardTarget
 import com.nightpixel.sololeveling.data.entity.RoutineItem
 import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
@@ -54,10 +52,8 @@ data class BackupData(
     val xpLogs: List<XpLog> = emptyList(),
     val punishmentPoolItems: List<PunishmentPoolItem> = emptyList(),
     val punishmentAssignments: List<PunishmentAssignment> = emptyList(),
-    val goldBalance: GoldBalance? = null,
-    val goldTransactions: List<GoldTransaction> = emptyList(),
     val rewardPoolItems: List<RewardPoolItem> = emptyList(),
-    val rewardTargets: List<RewardTarget> = emptyList(),
+    val rewardInventory: List<RewardInventoryItem> = emptyList(),
     val playerProfile: PlayerProfile? = null,
     val routineItems: List<RoutineItem> = emptyList(),
     val bodyStatEntries: List<BodyStatEntry> = emptyList()

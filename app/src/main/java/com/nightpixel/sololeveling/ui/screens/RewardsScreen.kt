@@ -2,19 +2,18 @@ package com.nightpixel.sololeveling.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -23,10 +22,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -40,29 +39,32 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
-import com.nightpixel.sololeveling.data.entity.RewardPool
+import com.nightpixel.sololeveling.data.entity.PunishmentSeverity
+import com.nightpixel.sololeveling.data.entity.RewardInventoryItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
-import com.nightpixel.sololeveling.data.entity.RewardTarget
+import com.nightpixel.sololeveling.data.gamification.claimedMajorThisMonth
+import com.nightpixel.sololeveling.data.gamification.claimedMinorThisWeek
 import com.nightpixel.sololeveling.data.gamification.countGoodWeeksInLastN
-import com.nightpixel.sololeveling.data.gamification.goldEarnedSince
+import com.nightpixel.sololeveling.data.gamification.wasLastWeekGood
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
-import com.nightpixel.sololeveling.ui.theme.SystemVioletBright
+import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
 import kotlinx.coroutines.launch
-import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-/** Spec Section 5.7 - the Reward Economy. Gold is granted elsewhere (habit/gym completion sites -
- * see `GoldEngine`); this screen is where it gets spent. Each week/month you pick one reward from
- * that pool as your target (`RewardTarget`); once Gold *earned* since the period started (see
- * `goldEarnedSince`) covers its cost, "Claim" unlocks and spends it. The Monthly pool stays locked
- * until 3 of the last 4 weeks were "good weeks" (spec Section 5.4/5.7, `countGoodWeeksInLastN`) -
- * reusing the exact "good week" definition Weekly Quests already established on the Dashboard. */
+/** The currency-free Reward Economy (user feedback, 2026-08-30: "get rid of currency all together
+ * keep the rewards section. There should be minor and major rewards..."). Mirrors the Punishment
+ * Pool's own Minor/Major split (`PunishmentSeverity` reused directly, same [SeverityChip]-style
+ * visual language) for the opposite direction - a payoff instead of a debt. Two live-computed
+ * eligibility windows (see `data/gamification/Rewards.kt`): a good week unlocks one Minor claim
+ * the following week; 3 good weeks in the trailing 4 unlocks one Major claim this month. Claiming
+ * moves a pool item into your [RewardInventoryItem] inventory; "Use" there marks it redeemed in
+ * real life - the same "pending vs. history" dual state `PunishmentAssignment.resolved` already
+ * plays for Debts. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RewardsScreen() {
@@ -72,46 +74,39 @@ fun RewardsScreen() {
     val habitDao = remember { app.database.habitDao() }
     val gymDao = remember { app.database.gymDao() }
     val waterDao = remember { app.database.waterDao() }
-    val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
 
-    val balance by rewardDao.observeBalance().collectAsState(initial = null)
     val poolItems by rewardDao.observePoolItems().collectAsState(initial = emptyList())
-    val targets by rewardDao.observeTargets().collectAsState(initial = emptyList())
-    val transactions by rewardDao.observeTransactions().collectAsState(initial = emptyList())
+    val inventory by rewardDao.observeInventory().collectAsState(initial = emptyList())
 
     val habitsWithLogs by habitDao.observeHabitsWithLogs().collectAsState(initial = emptyList())
     val exercisesWithSessions by gymDao.observeExercisesWithSessions().collectAsState(initial = emptyList())
     val allWaterLogs by waterDao.observeAllLogs().collectAsState(initial = emptyList())
+    val waterLogsByDate = remember(allWaterLogs) { allWaterLogs.associateBy { it.date } }
 
     val today = remember { LocalDate.now() }
-    val weekStart = remember(today) { today.with(DayOfWeek.MONDAY) }
-    val monthStart = remember(today) { today.withDayOfMonth(1) }
 
-    val goodWeeks = remember(habitsWithLogs, exercisesWithSessions, allWaterLogs, today) {
-        countGoodWeeksInLastN(today, 4, habitsWithLogs, exercisesWithSessions, allWaterLogs.associateBy { it.date })
+    val lastWeekGood = remember(habitsWithLogs, exercisesWithSessions, waterLogsByDate, today) {
+        wasLastWeekGood(today, habitsWithLogs, exercisesWithSessions, waterLogsByDate)
     }
-    val monthlyUnlocked = goodWeeks >= 3
+    val minorAlreadyClaimed = remember(inventory, today) { claimedMinorThisWeek(today, inventory) }
+    val minorEligible = lastWeekGood && !minorAlreadyClaimed
 
-    val weeklyEarned = remember(weekStart, transactions) { goldEarnedSince(weekStart, transactions) }
-    val monthlyEarned = remember(monthStart, transactions) { goldEarnedSince(monthStart, transactions) }
-
-    val weeklyTarget = targets.find { it.pool == RewardPool.WEEKLY && it.periodStart == weekStart.toString() }
-    val monthlyTarget = targets.find { it.pool == RewardPool.MONTHLY && it.periodStart == monthStart.toString() }
+    val goodWeeksInLast4 = remember(habitsWithLogs, exercisesWithSessions, waterLogsByDate, today) {
+        countGoodWeeksInLastN(today, 4, habitsWithLogs, exercisesWithSessions, waterLogsByDate)
+    }
+    val majorUnlocked = goodWeeksInLast4 >= 3
+    val majorAlreadyClaimed = remember(inventory, today) { claimedMajorThisMonth(today, inventory) }
+    val majorEligible = majorUnlocked && !majorAlreadyClaimed
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var claimPickerSeverity by remember { mutableStateOf<PunishmentSeverity?>(null) }
 
-    fun pick(pool: RewardPool, periodStart: LocalDate, item: RewardPoolItem) {
+    fun claim(item: RewardPoolItem) {
         scope.launch {
-            rewardDao.upsertTarget(RewardTarget(pool = pool, periodStart = periodStart.toString(), itemId = item.id))
+            rewardDao.insertInventoryItem(RewardInventoryItem(title = item.title, severity = item.severity))
         }
-    }
-
-    fun claim(target: RewardTarget, item: RewardPoolItem) {
-        scope.launch {
-            goldEngine.spend(item.cost, "Reward: ${item.title}")
-            rewardDao.updateTarget(target.copy(claimed = true, claimedAt = System.currentTimeMillis()))
-        }
+        claimPickerSeverity = null
     }
 
     Scaffold(
@@ -131,57 +126,68 @@ fun RewardsScreen() {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { GoldBalanceCard(balance?.balance ?: 0) }
-
-            item { SectionHeader("Weekly Target") }
-            item {
-                TargetCard(
-                    target = weeklyTarget,
-                    item = poolItems.find { it.id == weeklyTarget?.itemId },
-                    earned = weeklyEarned,
-                    poolItems = poolItems.filter { it.pool == RewardPool.WEEKLY },
-                    locked = false,
-                    lockedReason = null,
-                    onPick = { pick(RewardPool.WEEKLY, weekStart, it) },
-                    onClaim = ::claim
+            item(key = "week-header") { SectionHeader("This Week") }
+            item(key = "week-card") {
+                EligibilityCard(
+                    severity = PunishmentSeverity.MINOR,
+                    eligible = minorEligible,
+                    reason = when {
+                        minorAlreadyClaimed -> "Already claimed this week"
+                        !lastWeekGood -> "Last week wasn't a good week"
+                        else -> null
+                    },
+                    onClaim = { claimPickerSeverity = PunishmentSeverity.MINOR }
                 )
             }
 
-            item { SectionHeader("Monthly Target") }
-            item {
-                TargetCard(
-                    target = monthlyTarget,
-                    item = poolItems.find { it.id == monthlyTarget?.itemId },
-                    earned = monthlyEarned,
-                    poolItems = poolItems.filter { it.pool == RewardPool.MONTHLY },
-                    locked = !monthlyUnlocked,
-                    lockedReason = "$goodWeeks/4 good weeks recently - need 3 to unlock Monthly rewards",
-                    onPick = { pick(RewardPool.MONTHLY, monthStart, it) },
-                    onClaim = ::claim
+            item(key = "month-header") { SectionHeader("This Month") }
+            item(key = "month-card") {
+                EligibilityCard(
+                    severity = PunishmentSeverity.MAJOR,
+                    eligible = majorEligible,
+                    reason = when {
+                        majorAlreadyClaimed -> "Already claimed this month"
+                        !majorUnlocked -> "$goodWeeksInLast4/4 good weeks recently - need 3 to unlock"
+                        else -> null
+                    },
+                    onClaim = { claimPickerSeverity = PunishmentSeverity.MAJOR }
                 )
             }
 
-            val weeklyPool = poolItems.filter { it.pool == RewardPool.WEEKLY }
-            if (weeklyPool.isNotEmpty()) {
-                item { SectionHeader("Weekly Pool") }
-                items(weeklyPool, key = { "wpool-${it.id}" }) { item ->
+            val unusedInventory = inventory.filter { it.usedAt == null }
+            if (unusedInventory.isNotEmpty()) {
+                item(key = "inv-header") { SectionHeader("Inventory") }
+                items(unusedInventory, key = { "inv-${it.id}" }) { item ->
+                    InventoryRow(
+                        item = item,
+                        onUse = {
+                            scope.launch {
+                                rewardDao.updateInventoryItem(item.copy(usedAt = System.currentTimeMillis()))
+                            }
+                        }
+                    )
+                }
+            }
+
+            val minorPool = poolItems.filter { it.severity == PunishmentSeverity.MINOR }
+            if (minorPool.isNotEmpty()) {
+                item(key = "minor-pool-header") { SectionHeader("Minor Pool") }
+                items(minorPool, key = { "minor-${it.id}" }) { item ->
                     PoolItemRow(item, onDelete = { scope.launch { rewardDao.deletePoolItem(item) } })
                 }
             }
-            val monthlyPool = poolItems.filter { it.pool == RewardPool.MONTHLY }
-            if (monthlyPool.isNotEmpty()) {
-                item { SectionHeader("Monthly Pool") }
-                items(monthlyPool, key = { "mpool-${it.id}" }) { item ->
+            val majorPool = poolItems.filter { it.severity == PunishmentSeverity.MAJOR }
+            if (majorPool.isNotEmpty()) {
+                item(key = "major-pool-header") { SectionHeader("Major Pool") }
+                items(majorPool, key = { "major-${it.id}" }) { item ->
                     PoolItemRow(item, onDelete = { scope.launch { rewardDao.deletePoolItem(item) } })
                 }
             }
 
-            val history = targets.filter { it.claimed }.sortedByDescending { it.claimedAt }
+            val history = inventory.filter { it.usedAt != null }.sortedByDescending { it.usedAt }
             if (history.isNotEmpty()) {
-                item { SectionHeader("History") }
-                items(history, key = { "hist-${it.id}" }) { target ->
-                    HistoryRow(target, poolItems.find { it.id == target.itemId })
-                }
+                item(key = "history-header") { SectionHeader("History") }
+                items(history, key = { "hist-${it.id}" }) { item -> HistoryRow(item) }
             }
         }
     }
@@ -195,6 +201,15 @@ fun RewardsScreen() {
             }
         )
     }
+
+    claimPickerSeverity?.let { severity ->
+        ClaimPickerDialog(
+            severity = severity,
+            poolItems = poolItems.filter { it.severity == severity },
+            onDismiss = { claimPickerSeverity = null },
+            onPick = ::claim
+        )
+    }
 }
 
 @Composable
@@ -203,109 +218,61 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun GoldBalanceCard(balance: Int) {
+private fun SeverityChip(severity: PunishmentSeverity) {
+    val color = if (severity == PunishmentSeverity.MAJOR) SystemRed else SystemYellow
+    Text(severity.name, style = MaterialTheme.typography.labelSmall, color = color)
+}
+
+@Composable
+private fun EligibilityCard(
+    severity: PunishmentSeverity,
+    eligible: Boolean,
+    reason: String?,
+    onClaim: () -> Unit
+) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.MonetizationOn, contentDescription = null, tint = SystemYellow)
-            Text("$balance Gold", style = MaterialTheme.typography.headlineSmall)
+            Column {
+                Text(
+                    if (severity == PunishmentSeverity.MAJOR) "Major Reward" else "Minor Reward",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    reason ?: "Ready to claim!",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (eligible) SystemGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (eligible) {
+                Button(onClick = onClaim) { Text("Claim") }
+            }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TargetCard(
-    target: RewardTarget?,
-    item: RewardPoolItem?,
-    earned: Int,
-    poolItems: List<RewardPoolItem>,
-    locked: Boolean,
-    lockedReason: String?,
-    onPick: (RewardPoolItem) -> Unit,
-    onClaim: (RewardTarget, RewardPoolItem) -> Unit
-) {
-    var showPicker by remember(target?.id, locked) { mutableStateOf(target == null && !locked) }
-
+private fun InventoryRow(item: RewardInventoryItem, onUse: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (locked) {
-                Text(
-                    lockedReason ?: "Locked",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else if (target != null && item != null && !showPicker) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(item.title, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "${item.cost} Gold",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (target.claimed) {
-                        Text("Claimed!", color = SystemGreen, style = MaterialTheme.typography.labelLarge)
-                    } else {
-                        TextButton(onClick = { showPicker = true }) { Text("Change") }
-                    }
-                }
-                if (!target.claimed) {
-                    val progress = if (item.cost > 0) (earned / item.cost.toFloat()).coerceIn(0f, 1f) else 0f
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = SystemVioletBright
-                    )
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(item.title, style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SeverityChip(item.severity)
                     Text(
-                        "$earned / ${item.cost} Gold earned this period",
+                        "Claimed ${formatDate(item.claimedAt)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (earned >= item.cost) {
-                        Button(onClick = { onClaim(target, item) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Claim")
-                        }
-                    }
-                }
-            } else if (target != null && item == null) {
-                Text("(deleted reward)", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-            if (!locked && showPicker) {
-                if (poolItems.isEmpty()) {
-                    Text(
-                        "Add a reward to this pool first",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Text("Pick a target:", style = MaterialTheme.typography.labelLarge)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        poolItems.forEach { candidate ->
-                            FilterChip(
-                                selected = target?.itemId == candidate.id,
-                                onClick = {
-                                    onPick(candidate)
-                                    showPicker = false
-                                },
-                                label = { Text("${candidate.title} (${candidate.cost}g)") }
-                            )
-                        }
-                    }
                 }
             }
+            Button(onClick = onUse) { Text("Use") }
         }
     }
 }
@@ -319,11 +286,7 @@ private fun PoolItemRow(item: RewardPoolItem, onDelete: () -> Unit) {
         ) {
             Column(Modifier.weight(1f)) {
                 Text(item.title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "${item.cost} Gold",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                SeverityChip(item.severity)
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete reward")
@@ -333,24 +296,69 @@ private fun PoolItemRow(item: RewardPoolItem, onDelete: () -> Unit) {
 }
 
 @Composable
-private fun HistoryRow(target: RewardTarget, item: RewardPoolItem?) {
+private fun HistoryRow(item: RewardInventoryItem) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(item?.title ?: "(deleted reward)", style = MaterialTheme.typography.titleMedium)
-            Text(
-                poolLabel(target.pool) + (target.claimedAt?.let { " - claimed ${formatDate(it)}" } ?: ""),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(item.title, style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                SeverityChip(item.severity)
+                Text(
+                    "Used ${item.usedAt?.let { formatDate(it) } ?: ""}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
 
-private fun poolLabel(pool: RewardPool): String =
-    pool.name.lowercase().replaceFirstChar { it.uppercase() }
-
 private fun formatDate(timestamp: Long): String =
     Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ClaimPickerDialog(
+    severity: PunishmentSeverity,
+    poolItems: List<RewardPoolItem>,
+    onDismiss: () -> Unit,
+    onPick: (RewardPoolItem) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Claim a ${if (severity == PunishmentSeverity.MAJOR) "Major" else "Minor"} Reward") },
+        text = {
+            if (poolItems.isEmpty()) {
+                Text(
+                    "Add a reward to this pool first",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                Column(
+                    modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    poolItems.forEach { item ->
+                        Surface(
+                            onClick = { onPick(item) },
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                item.title,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -359,8 +367,7 @@ private fun AddRewardDialog(
     onConfirm: (RewardPoolItem) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
-    var cost by remember { mutableStateOf("") }
-    var pool by remember { mutableStateOf(RewardPool.WEEKLY) }
+    var severity by remember { mutableStateOf(PunishmentSeverity.MINOR) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -374,24 +381,16 @@ private fun AddRewardDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
-                    value = cost,
-                    onValueChange = { cost = it },
-                    label = { Text("Gold cost") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
-                        selected = pool == RewardPool.WEEKLY,
-                        onClick = { pool = RewardPool.WEEKLY },
-                        label = { Text("Weekly") }
+                        selected = severity == PunishmentSeverity.MINOR,
+                        onClick = { severity = PunishmentSeverity.MINOR },
+                        label = { Text("Minor") }
                     )
                     FilterChip(
-                        selected = pool == RewardPool.MONTHLY,
-                        onClick = { pool = RewardPool.MONTHLY },
-                        label = { Text("Monthly") }
+                        selected = severity == PunishmentSeverity.MAJOR,
+                        onClick = { severity = PunishmentSeverity.MAJOR },
+                        label = { Text("Major") }
                     )
                 }
             }
@@ -399,12 +398,11 @@ private fun AddRewardDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val costValue = cost.toIntOrNull()
-                    if (title.isNotBlank() && costValue != null && costValue > 0) {
-                        onConfirm(RewardPoolItem(title = title.trim(), cost = costValue, pool = pool))
+                    if (title.isNotBlank()) {
+                        onConfirm(RewardPoolItem(title = title.trim(), severity = severity))
                     }
                 },
-                enabled = title.isNotBlank() && (cost.toIntOrNull() ?: 0) > 0
+                enabled = title.isNotBlank()
             ) { Text("Add") }
         },
         dismissButton = {

@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.room.withTransaction
 import com.nightpixel.sololeveling.data.AppDatabase
 import com.nightpixel.sololeveling.data.entity.AppMeta
-import com.nightpixel.sololeveling.data.entity.GoldBalance
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.TaskList
@@ -45,10 +44,8 @@ class BackupManager(private val database: AppDatabase) {
             xpLogs = database.statDao().getAllXpLogsOnce(),
             punishmentPoolItems = database.punishmentDao().getAllItemsOnce(),
             punishmentAssignments = database.punishmentDao().getAllAssignmentsOnce(),
-            goldBalance = database.rewardDao().getBalanceOnce(),
-            goldTransactions = database.rewardDao().getAllTransactionsOnce(),
             rewardPoolItems = database.rewardDao().getAllPoolItemsOnce(),
-            rewardTargets = database.rewardDao().getAllTargetsOnce(),
+            rewardInventory = database.rewardDao().getAllInventoryOnce(),
             playerProfile = database.playerProfileDao().getOnce(),
             routineItems = database.routineDao().getAllOnce(),
             bodyStatEntries = database.healthDao().getAllOnce()
@@ -69,8 +66,8 @@ class BackupManager(private val database: AppDatabase) {
 
     /** Wipes every table back to the same empty/seeded state a fresh install starts from -
      * reuses [restore]'s "missing fields get seeded" behavior (default task list, 5 stats at
-     * level 1, zero Gold balance) by just handing it an all-empty [BackupData], rather than
-     * duplicating that seed logic a second time. Also deletes food photo files from internal
+     * level 1) by just handing it an all-empty [BackupData], rather than duplicating that seed
+     * logic a second time. Also deletes food photo files from internal
      * storage, since those live on disk outside Room and would otherwise be orphaned. Meant for
      * repeatedly starting fresh during testing - export first if the data matters. */
     suspend fun wipeAll(context: Context) {
@@ -107,12 +104,7 @@ class BackupManager(private val database: AppDatabase) {
                 backup.xpLogs
             )
             database.punishmentDao().replaceAll(backup.punishmentPoolItems, backup.punishmentAssignments)
-            database.rewardDao().replaceAll(
-                backup.goldBalance ?: GoldBalance(),
-                backup.goldTransactions,
-                backup.rewardPoolItems,
-                backup.rewardTargets
-            )
+            database.rewardDao().replaceAll(backup.rewardPoolItems, backup.rewardInventory)
             database.playerProfileDao().replaceAll(backup.playerProfile)
             database.healthDao().replaceAll(backup.bodyStatEntries)
         }
