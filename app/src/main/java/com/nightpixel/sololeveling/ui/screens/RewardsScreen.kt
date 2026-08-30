@@ -155,8 +155,18 @@ fun RewardsScreen() {
             }
 
             val unusedInventory = inventory.filter { it.usedAt == null }
-            if (unusedInventory.isNotEmpty()) {
-                item(key = "inv-header") { SectionHeader("Inventory") }
+            // Always shown (unlike the Pool/History sections below) - a brand-new user has no
+            // way to discover this feature exists if it only appears once something's in it.
+            item(key = "inv-header") { SectionHeader("Inventory") }
+            if (unusedInventory.isEmpty()) {
+                item(key = "inv-empty") {
+                    Text(
+                        "Nothing claimed yet - claim a reward above and it'll show up here",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
                 items(unusedInventory, key = { "inv-${it.id}" }) { item ->
                     InventoryRow(
                         item = item,

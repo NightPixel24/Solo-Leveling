@@ -850,6 +850,19 @@ completed with no crash and rendered the same clean Rewards screen. A final `adb
 on both devices showed no crashes (only the same benign `FrameTracker` IME-animation timeout seen
 throughout this session).
 
+**Eighth feedback pass (2026-08-30, v1.5.0 -> v1.5.1)**: same-day follow-up - user asked "where is
+inventory" right after the previous pass shipped. Real discoverability bug: `RewardsScreen.kt`'s
+Inventory section, like Minor Pool/Major Pool/History, only rendered at all once it had at least
+one row in it - a brand-new user (or anyone who hasn't claimed a reward yet) had no way to tell the
+feature existed. Fixed by always rendering the "Inventory" header, with an explicit empty-state
+line ("Nothing claimed yet - claim a reward above and it'll show up here") when there's nothing in
+it yet, rather than hiding the whole section. Minor Pool/Major Pool/History stay conditional -
+those are inherently empty until the user adds/claims something and don't need the same "prove this
+exists" treatment Inventory does, since claiming is the screen's main call to action. No schema
+change. Bumped to v1.5.1 (versionCode 10). Verified on the `SoloLeveling_Pixel6` emulator: Inventory
+now shows immediately below the This Week/This Month cards with the empty-state message even with
+zero claims; a final `adb logcat *:E` sweep showed no crashes.
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
