@@ -1,6 +1,8 @@
 package com.nightpixel.sololeveling.data
 
 import androidx.room.TypeConverter
+import com.nightpixel.sololeveling.data.entity.BodyStatType
+import com.nightpixel.sololeveling.data.entity.DayPart
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.FoodRating
 import com.nightpixel.sololeveling.data.entity.GoalStatus
@@ -72,4 +74,16 @@ class Converters {
 
     @TypeConverter
     fun toFoodRating(value: String): FoodRating = FoodRating.valueOf(value)
+
+    @TypeConverter
+    fun fromDayPart(part: DayPart): String = part.name
+
+    @TypeConverter
+    fun toDayPart(value: String): DayPart = DayPart.valueOf(value)
+
+    @TypeConverter
+    fun fromBodyStatType(type: BodyStatType): String = type.name
+
+    @TypeConverter
+    fun toBodyStatType(value: String): BodyStatType = BodyStatType.valueOf(value)
 }

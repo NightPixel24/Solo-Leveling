@@ -1,6 +1,7 @@
 package com.nightpixel.sololeveling.data.backup
 
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.BodyStatEntry
 import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
@@ -16,6 +17,7 @@ import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardTarget
+import com.nightpixel.sololeveling.data.entity.RoutineItem
 import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.Subtask
@@ -56,5 +58,7 @@ data class BackupData(
     val goldTransactions: List<GoldTransaction> = emptyList(),
     val rewardPoolItems: List<RewardPoolItem> = emptyList(),
     val rewardTargets: List<RewardTarget> = emptyList(),
-    val playerProfile: PlayerProfile? = null
+    val playerProfile: PlayerProfile? = null,
+    val routineItems: List<RoutineItem> = emptyList(),
+    val bodyStatEntries: List<BodyStatEntry> = emptyList()
 )

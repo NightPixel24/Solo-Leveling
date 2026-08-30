@@ -170,6 +170,38 @@ class MigrationTest {
         }
     }
 
+    /** Seeds a real habit before migrating so `routine_items` (Routine tab's Schedule sub-tab,
+     * user feedback 2026-08-30) and `body_stat_entries` (Dashboard's new Health tab) both get
+     * created with the right shape - not just an empty-table schema check. */
+    @Test
+    fun migrate16To17() {
+        val db = helper.createDatabase(dbName, 16)
+        db.execSQL(
+            "INSERT INTO habits (id, title, frequency, targetPerWeek, statTag, createdAt) " +
+                "VALUES (1, 'Read scripture', 'DAILY', 3, 'SPIRITUALITY', 0)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 17, true, AppDatabase.MIGRATION_16_17)
+
+        migrated.execSQL(
+            "INSERT INTO routine_items (dayPart, title, habitId, createdAt) VALUES ('MORNING', '', 1, 0)"
+        )
+        migrated.query("SELECT COUNT(*) FROM routine_items WHERE dayPart = 'MORNING'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+
+        migrated.execSQL(
+            "INSERT INTO body_stat_entries (type, timestamp, value, systolic, diastolic) " +
+                "VALUES ('BLOOD_PRESSURE', 0, NULL, 120, 80)"
+        )
+        migrated.query("SELECT systolic, diastolic FROM body_stat_entries WHERE type = 'BLOOD_PRESSURE'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(120, cursor.getInt(0))
+            assertEquals(80, cursor.getInt(1))
+        }
+    }
+
     /** The full chain a real device upgrading from the very first release runs through, plus a
      * sanity read through Room's own generated DAOs (not just raw-SQL schema validation) to
      * confirm the fully-migrated database is actually usable - the seeded rows MIGRATION_2_3,
@@ -180,12 +212,13 @@ class MigrationTest {
     fun migrateAllStepsAndOpenWithRoom() {
         helper.createDatabase(dbName, 1).close()
         helper.runMigrationsAndValidate(
-            dbName, 16, true,
+            dbName, 17, true,
             AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
             AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
-            AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16
+            AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
+            AppDatabase.MIGRATION_16_17
         )
 
         val db = Room.databaseBuilder(
@@ -198,7 +231,8 @@ class MigrationTest {
                 AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
                 AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
-                AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16
+                AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
+                AppDatabase.MIGRATION_16_17
             )
             .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .build()

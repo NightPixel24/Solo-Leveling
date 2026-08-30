@@ -49,7 +49,9 @@ class BackupManager(private val database: AppDatabase) {
             goldTransactions = database.rewardDao().getAllTransactionsOnce(),
             rewardPoolItems = database.rewardDao().getAllPoolItemsOnce(),
             rewardTargets = database.rewardDao().getAllTargetsOnce(),
-            playerProfile = database.playerProfileDao().getOnce()
+            playerProfile = database.playerProfileDao().getOnce(),
+            routineItems = database.routineDao().getAllOnce(),
+            bodyStatEntries = database.healthDao().getAllOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -89,6 +91,8 @@ class BackupManager(private val database: AppDatabase) {
             )
             database.taskDao().replaceAll(backup.tasks, backup.subtasks)
             database.habitDao().replaceAll(backup.habits, backup.habitLogs)
+            // Habits must already exist before this - routine_items.habitId FK-references them.
+            database.routineDao().replaceAll(backup.routineItems)
             // Split days first - exercises FK-reference them, so they must already exist before
             // gymDao's own replaceAll inserts exercises pointing at their ids.
             database.splitDayDao().replaceAll(backup.splitDays)
@@ -110,6 +114,7 @@ class BackupManager(private val database: AppDatabase) {
                 backup.rewardTargets
             )
             database.playerProfileDao().replaceAll(backup.playerProfile)
+            database.healthDao().replaceAll(backup.bodyStatEntries)
         }
     }
 }

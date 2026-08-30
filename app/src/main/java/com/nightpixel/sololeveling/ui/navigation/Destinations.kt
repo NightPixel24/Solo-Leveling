@@ -5,8 +5,8 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -14,14 +14,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * 5 items with Home centered - Calendar and Rewards moved to Dashboard top-bar icons instead,
  * the same "reached from Dashboard, not this bar" treatment Settings/Goals/Punishments already
  * had). Declaration order is display order, so Dashboard sits third (visually centered) rather
- * than first. */
+ * than first. Habits was renamed Routine (user feedback, 2026-08-30) once it grew a Schedule
+ * sub-tab alongside the original habit list - see `ui/screens/RoutineScreen.kt`. */
 enum class BottomNavDestination(
     val route: String,
     val label: String,
     val icon: ImageVector
 ) {
     Tasks("tasks", "Tasks", Icons.Filled.CheckCircle),
-    Habits("habits", "Habits", Icons.Filled.Repeat),
+    Routine("routine", "Routine", Icons.Filled.Schedule),
     Dashboard("dashboard", "Home", Icons.Filled.Shield),
     Gym("gym", "Gym", Icons.Filled.FitnessCenter),
     Life("life", "Life", Icons.Filled.Restaurant)

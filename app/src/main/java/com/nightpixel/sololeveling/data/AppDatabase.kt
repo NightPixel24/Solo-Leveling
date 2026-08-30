@@ -13,16 +13,19 @@ import com.nightpixel.sololeveling.data.dao.FoodDao
 import com.nightpixel.sololeveling.data.dao.GoalDao
 import com.nightpixel.sololeveling.data.dao.GymDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
+import com.nightpixel.sololeveling.data.dao.HealthDao
 import com.nightpixel.sololeveling.data.dao.MoodDao
 import com.nightpixel.sololeveling.data.dao.PlayerProfileDao
 import com.nightpixel.sololeveling.data.dao.PunishmentDao
 import com.nightpixel.sololeveling.data.dao.RewardDao
+import com.nightpixel.sololeveling.data.dao.RoutineDao
 import com.nightpixel.sololeveling.data.dao.SplitDayDao
 import com.nightpixel.sololeveling.data.dao.StatDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.dao.TaskListDao
 import com.nightpixel.sololeveling.data.dao.WaterDao
 import com.nightpixel.sololeveling.data.entity.AppMeta
+import com.nightpixel.sololeveling.data.entity.BodyStatEntry
 import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
@@ -38,6 +41,7 @@ import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardTarget
+import com.nightpixel.sololeveling.data.entity.RoutineItem
 import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
@@ -60,9 +64,9 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         Goal::class, Stat::class, XpLog::class,
         PunishmentPoolItem::class, PunishmentAssignment::class,
         GoldBalance::class, GoldTransaction::class, RewardPoolItem::class, RewardTarget::class,
-        PlayerProfile::class, SplitDay::class
+        PlayerProfile::class, SplitDay::class, RoutineItem::class, BodyStatEntry::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -82,9 +86,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun rewardDao(): RewardDao
     abstract fun playerProfileDao(): PlayerProfileDao
     abstract fun splitDayDao(): SplitDayDao
+    abstract fun routineDao(): RoutineDao
+    abstract fun healthDao(): HealthDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 16
+        const val CURRENT_SCHEMA_VERSION = 17
         private const val DB_NAME = "solo_leveling.db"
 
         /** Fresh installs get a single protected "Daily" list (user feedback, 2026-08-26: "make
@@ -565,6 +571,45 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Bundles two unrelated-but-simultaneous new features from the same round of user
+         * feedback (2026-08-30), same "one evening, one version bump" approach prior passes used:
+         * (1) the Habits tab becomes "Routine" - a Schedule sub-tab lets the user plan free-text
+         * or habit-linked items under Morning/Day/Afternoon/Night, backed by the new
+         * `routine_items` table (FK+cascade to `habits`, same as `HabitLog`); (2) a new Health tab
+         * on the Dashboard records dated/timed weight, blood sugar, and blood pressure readings,
+         * backed by `body_stat_entries` - one table for all three types (see [BodyStatEntry]'s doc
+         * comment) rather than three near-identical tables. */
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS routine_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        dayPart TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        habitId INTEGER,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(habitId) REFERENCES habits(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_routine_items_habitId ON routine_items(habitId)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS body_stat_entries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        type TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        value REAL,
+                        systolic INTEGER,
+                        diastolic INTEGER
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -578,7 +623,8 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16
+                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
+                        MIGRATION_16_17
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

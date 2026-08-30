@@ -14,10 +14,10 @@ import com.nightpixel.sololeveling.ui.screens.CalendarScreen
 import com.nightpixel.sololeveling.ui.screens.DashboardScreen
 import com.nightpixel.sololeveling.ui.screens.GoalsScreen
 import com.nightpixel.sololeveling.ui.screens.GymScreen
-import com.nightpixel.sololeveling.ui.screens.HabitsScreen
 import com.nightpixel.sololeveling.ui.screens.LifeScreen
 import com.nightpixel.sololeveling.ui.screens.PunishmentScreen
 import com.nightpixel.sololeveling.ui.screens.RewardsScreen
+import com.nightpixel.sololeveling.ui.screens.RoutineScreen
 import com.nightpixel.sololeveling.ui.screens.SettingsScreen
 import com.nightpixel.sololeveling.ui.screens.TasksScreen
 
@@ -43,7 +43,7 @@ fun SoloLevelingApp(navController: NavHostController = rememberNavController()) 
                 )
             }
             composable(BottomNavDestination.Tasks.route) { TasksScreen() }
-            composable(BottomNavDestination.Habits.route) { HabitsScreen() }
+            composable(BottomNavDestination.Routine.route) { RoutineScreen() }
             composable(BottomNavDestination.Gym.route) { GymScreen() }
             composable(BottomNavDestination.Life.route) { LifeScreen() }
             composable(Routes.SETTINGS) { SettingsScreen() }

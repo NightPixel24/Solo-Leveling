@@ -707,6 +707,62 @@ Radar" dialog with the radar chart and a Close button, and the chart is no longe
 normal Home scroll. A final `adb logcat` crash sweep showed no app crashes (only the same benign
 `FrameTracker` IME-animation timeout seen in every prior phase).
 
+**Fifth feedback pass (2026-08-30, v1.3.1 -> v1.4.0)**: two new features, bundled into one schema
+bump per this session's established "one evening, one version bump" convention. Schema v16->v17
+(`AppDatabase.MIGRATION_16_17`) adds two unrelated new tables:
+- **Habits tab becomes "Routine"**: renamed throughout (`BottomNavDestination.Habits` ->
+  `Routine`, icon `Repeat` -> `Schedule`) and now opens on a new Schedule sub-tab first (user
+  feedback: "I also want it to open on a schedule screen first"), with the original habit list
+  moved to a second Habits sub-tab (`TabRow`, same `RoutineScreen()`/`HabitsTab()` split as
+  `GymScreen`'s Routine/Calendar or `LifeScreen`'s Mood/Food/Water). Schedule groups the day into
+  `DayPart` (Morning/Day/Afternoon/Night, `data/entity/RoutineItem.kt`) - the user can drop in a
+  free-text plan item or slot in an existing habit, "so they fit into my day rather than doing them
+  at random times." Both shapes share one `RoutineItem` table (`habitId` null vs. set) rather than
+  a sealed hierarchy Room can't map directly; a slotted habit's checkbox reads/writes the exact same
+  `HabitLog` the Habits sub-tab already tracks (verified on-device: checking it off in Schedule
+  shows checked in Habits and vice versa) - no second completion-tracking mechanism. The "+" in the
+  top bar is contextual to the active sub-tab (opens `AddRoutineItemDialog` on Schedule,
+  `AddHabitDialog` on Habits), matching `GymScreen`'s existing contextual-add pattern.
+  **Real bug caught during manual on-device testing** (not migration tests this time): the day-part
+  picker in `AddRoutineItemDialog` used a plain `Row` for the 4 `DayPart` chips - same overflow
+  class this app has hit repeatedly (Phase 4 stat chips, Phase 7 heatmap, Phase 9 status chips,
+  GoalsScreen). With 4 chips it overflowed and "Night" was completely unreachable - not just
+  visually clipped but absent from the accessibility tree entirely (confirmed via `uiautomator
+  dump` before and after the fix). Fixed by switching to `FlowRow`, matching the established fix.
+- **Dashboard gains a Health tab**: `Home`/`Health`/`Analytics` (was `Home`/`Analytics`) - "I want
+  to record my body stats. So weight, blood sugar mmol/L, and blood pressure. It needs to track the
+  date time." `BodyStatEntry` (`data/entity/BodyStatEntry.kt`) is one table for all three types
+  (`WEIGHT`/`BLOOD_SUGAR`/`BLOOD_PRESSURE`) rather than three near-identical tables - `value` holds
+  Weight (kg, this app's own unit choice, no prior convention existed) or Blood Sugar (mmol/L, per
+  the user's explicit unit), `systolic`/`diastolic` hold Blood Pressure; whichever pair doesn't
+  apply to a row's type is left null. `timestamp` is a real epoch-millis date+time (unlike
+  `MoodEntry`/`WaterLog`'s date-only PK) since more than one reading a day is expected - the log
+  dialog combines Material3 `DatePickerDialog` and `TimePicker` (the same two components
+  `TasksScreen`/`GoalsScreen` and `HabitsScreen` already use individually, just combined into one
+  dialog here), defaulting to "now" but fully editable. `data/gamification/HealthAnalytics.kt`'s
+  three pure functions (`weightTrend`/`bloodSugarTrend`/`bloodPressureTrend`) feed a new "Health
+  Trends" section on the Analytics tab, reusing the existing `LineChart` component (blood pressure
+  plots Systolic/Diastolic as two series, same multi-series shape the stat-trend chart already
+  uses) - same "derive, don't store a second copy" reasoning, no new persisted trend data.
+No other bugs found this pass.
+Verified on the `SoloLeveling_Pixel6` emulator (phone had disconnected mid-session; emulator used
+as fallback) - real v16->v17 migration path exercised via all 17 `connectedDebugAndroidTest` cases
+(including the new `migrate16To17`, seeding a real habit row and asserting both new tables' shapes
+against it), confirmed passing via `adb logcat`'s `TestRunner: finished:`/`run finished: 17 tests,
+0 failed` lines (Gradle's own task result was reliable this run, no UTP flake). Manual pass: created
+a habit, confirmed Routine opens on Schedule by default; the Night-chip overflow bug reproduced,
+fixed, and reconfirmed fixed via `uiautomator dump`; slotted the habit into Morning via "Existing
+habit," checked it off from Schedule, and confirmed the Habits sub-tab showed the same check + a
+streak of 1, and the Dashboard's SPIRITUALITY stat moved to 10/50 XP and Gold to $1 - the shared-
+HabitLog wiring is real, not just visually similar; added a free-text "Read a book" item under
+Night and confirmed both sections render correctly grouped in chronological DayPart order; on the
+Health tab, logged a Weight (72.5 kg), a Blood Pressure (120/80 mmHg), a second Weight (71.8 kg),
+and a second Blood Pressure (118/76 mmHg), all with correct auto-filled date/time; confirmed the
+Analytics tab's new "Health Trends" section rendered all three charts (Blood Sugar correctly showing
+"Not enough readings yet" with zero entries) using real logged data. A final `adb logcat *:E` crash
+sweep showed no app crashes (only the same benign `FrameTracker` IME-animation timeout seen in every
+prior phase).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

@@ -24,18 +24,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.Bloodtype
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,7 +57,10 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -65,6 +74,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
+import com.nightpixel.sololeveling.data.entity.BodyStatEntry
+import com.nightpixel.sololeveling.data.entity.BodyStatType
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.ExerciseWithSessions
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
@@ -81,6 +92,7 @@ import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.WaterLog
 import com.nightpixel.sololeveling.data.entity.XpLog
+import com.nightpixel.sololeveling.data.gamification.BloodPressureTrend
 import com.nightpixel.sololeveling.data.gamification.FoodHealthDistribution
 import com.nightpixel.sololeveling.data.gamification.HabitCompletionStat
 import com.nightpixel.sololeveling.data.gamification.MAX_STAT_LEVEL
@@ -91,6 +103,8 @@ import com.nightpixel.sololeveling.data.gamification.Title
 import com.nightpixel.sololeveling.data.gamification.WeekGoodness
 import com.nightpixel.sololeveling.data.gamification.WeeklyQuestResult
 import com.nightpixel.sololeveling.data.gamification.WeeklyVolume
+import com.nightpixel.sololeveling.data.gamification.bloodPressureTrend
+import com.nightpixel.sololeveling.data.gamification.bloodSugarTrend
 import com.nightpixel.sololeveling.data.gamification.computeDailyQuests
 import com.nightpixel.sololeveling.data.gamification.computeRank
 import com.nightpixel.sololeveling.data.gamification.computeWeeklyQuests
@@ -100,6 +114,7 @@ import com.nightpixel.sololeveling.data.gamification.gymVolumeByWeek
 import com.nightpixel.sololeveling.data.gamification.habitCompletionRates
 import com.nightpixel.sololeveling.data.gamification.moodDistributionForMonth
 import com.nightpixel.sololeveling.data.gamification.statXpTrends
+import com.nightpixel.sololeveling.data.gamification.weightTrend
 import com.nightpixel.sololeveling.data.gamification.titleById
 import com.nightpixel.sololeveling.data.gamification.unlockedTitles
 import com.nightpixel.sololeveling.data.gamification.workoutCalendarForMonth
@@ -121,8 +136,13 @@ import com.nightpixel.sololeveling.ui.theme.SystemYellow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /** The Status Window (spec Section 6) plus (Phase 15) quick-add buttons, a mood month preview, a
  * Life Goals summary, and a full Analytics tab - the "tying everything together" phase spec
@@ -135,7 +155,7 @@ import java.time.YearMonth
  * radar chart, which otherwise stays out of the everyday Home scroll. The gavel icon opens the
  * spec Section 5.6 Punishment Pool, which - like Goals/Settings - has no assigned bottom-nav slot
  * either. */
-private enum class DashboardTab(val label: String) { HOME("Home"), ANALYTICS("Analytics") }
+private enum class DashboardTab(val label: String) { HOME("Home"), HEALTH("Health"), ANALYTICS("Analytics") }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,6 +181,7 @@ fun DashboardScreen(
     val rewardDao = remember { app.database.rewardDao() }
     val playerProfileDao = remember { app.database.playerProfileDao() }
     val splitDayDao = remember { app.database.splitDayDao() }
+    val healthDao = remember { app.database.healthDao() }
     val xpEngine = remember { app.xpEngine }
     val goldEngine = remember { app.goldEngine }
     val scope = rememberCoroutineScope()
@@ -200,6 +221,7 @@ fun DashboardScreen(
     val xpLogs by statDao.observeXpLogs().collectAsState(initial = emptyList())
     val waterLogsByDate = remember(allWaterLogs) { allWaterLogs.associateBy { it.date } }
     val splitDays by splitDayDao.observeSplitDays().collectAsState(initial = emptyList())
+    val bodyStatEntries by healthDao.observeEntries().collectAsState(initial = emptyList())
     val workoutsByDate = remember(exercisesWithSessions, splitDays, currentMonth) {
         workoutCalendarForMonth(currentMonth, exercisesWithSessions, splitDays)
     }
@@ -330,6 +352,11 @@ fun DashboardScreen(
                     },
                     onQuickAddFood = { launchFoodCamera() }
                 )
+                DashboardTab.HEALTH -> DashboardHealth(
+                    entries = bodyStatEntries,
+                    onAdd = { entry -> scope.launch { healthDao.insert(entry) } },
+                    onDelete = { entry -> scope.launch { healthDao.delete(entry) } }
+                )
                 DashboardTab.ANALYTICS -> DashboardAnalytics(
                     today = today,
                     currentMonth = currentMonth,
@@ -338,7 +365,8 @@ fun DashboardScreen(
                     exercisesWithSessions = exercisesWithSessions,
                     moodEntries = moodEntries,
                     foodEntries = foodEntries,
-                    waterLogsByDate = waterLogsByDate
+                    waterLogsByDate = waterLogsByDate,
+                    bodyStatEntries = bodyStatEntries
                 )
             }
         }
@@ -596,6 +624,225 @@ private fun GoalSummaryRow(
     }
 }
 
+/** The Dashboard's Health tab (user feedback, 2026-08-30: "I want to record my body stats. So
+ * weight, blood sugar mmol/L, and blood pressure"). A quick-add row picks which [BodyStatType] to
+ * log (each opens the same [AddBodyStatDialog], parameterized by type), followed by that type's
+ * own recent-readings list, newest first. Trend charts for this data live on the Analytics tab
+ * instead (`DashboardAnalytics`'s "Health Trends" section) rather than duplicating them here. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DashboardHealth(
+    entries: List<BodyStatEntry>,
+    onAdd: (BodyStatEntry) -> Unit,
+    onDelete: (BodyStatEntry) -> Unit
+) {
+    var addDialogType by remember { mutableStateOf<BodyStatType?>(null) }
+    val byType = remember(entries) { entries.groupBy { it.type } }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        item { SectionHeader("Log a Reading") }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = { addDialogType = BodyStatType.WEIGHT }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.MonitorWeight, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(" Weight", style = MaterialTheme.typography.labelLarge)
+                }
+                OutlinedButton(onClick = { addDialogType = BodyStatType.BLOOD_SUGAR }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Bloodtype, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(" Sugar", style = MaterialTheme.typography.labelLarge)
+                }
+                OutlinedButton(onClick = { addDialogType = BodyStatType.BLOOD_PRESSURE }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Favorite, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(" BP", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+        BodyStatType.entries.forEach { type ->
+            val typeEntries = byType[type].orEmpty()
+            item { SectionHeader(type.label) }
+            if (typeEntries.isEmpty()) {
+                item {
+                    Text(
+                        "No entries yet",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                items(typeEntries, key = { it.id }) { entry -> BodyStatRow(entry, onDelete = { onDelete(entry) }) }
+            }
+        }
+    }
+
+    addDialogType?.let { type ->
+        AddBodyStatDialog(
+            type = type,
+            onDismiss = { addDialogType = null },
+            onSave = { entry -> onAdd(entry); addDialogType = null }
+        )
+    }
+}
+
+private val bodyStatTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")
+
+@Composable
+private fun BodyStatRow(entry: BodyStatEntry, onDelete: () -> Unit) {
+    val dateTime = remember(entry.timestamp) {
+        LocalDateTime.ofInstant(Instant.ofEpochMilli(entry.timestamp), ZoneId.systemDefault())
+    }
+    val valueText = when (entry.type) {
+        BodyStatType.WEIGHT -> entry.value?.let { "${cleanNumber(it)} kg" } ?: "-"
+        BodyStatType.BLOOD_SUGAR -> entry.value?.let { "${cleanNumber(it)} mmol/L" } ?: "-"
+        BodyStatType.BLOOD_PRESSURE -> if (entry.systolic != null && entry.diastolic != null) {
+            "${entry.systolic}/${entry.diastolic} mmHg"
+        } else "-"
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(0.dp)) {
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(valueText, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    dateTime.format(bodyStatTimeFormatter),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete entry")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddBodyStatDialog(
+    type: BodyStatType,
+    onDismiss: () -> Unit,
+    onSave: (BodyStatEntry) -> Unit
+) {
+    var dateTime by remember { mutableStateOf(LocalDateTime.now()) }
+    var valueText by remember { mutableStateOf("") }
+    var systolicText by remember { mutableStateOf("") }
+    var diastolicText by remember { mutableStateOf("") }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+
+    val valid = when (type) {
+        BodyStatType.BLOOD_PRESSURE -> systolicText.toIntOrNull() != null && diastolicText.toIntOrNull() != null
+        else -> valueText.toDoubleOrNull() != null
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Log ${type.label}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (type == BodyStatType.BLOOD_PRESSURE) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = systolicText,
+                            onValueChange = { systolicText = it.filter { c -> c.isDigit() } },
+                            label = { Text("Systolic") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = diastolicText,
+                            onValueChange = { diastolicText = it.filter { c -> c.isDigit() } },
+                            label = { Text("Diastolic") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = valueText,
+                        onValueChange = { valueText = it.filter { c -> c.isDigit() || c == '.' } },
+                        label = { Text(if (type == BodyStatType.WEIGHT) "Weight (kg)" else "Blood sugar (mmol/L)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.weight(1f)) {
+                        Text(dateTime.toLocalDate().format(DateTimeFormatter.ofPattern("MMM d, yyyy")))
+                    }
+                    OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.weight(1f)) {
+                        Text(dateTime.toLocalTime().format(DateTimeFormatter.ofPattern("h:mm a")))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = valid,
+                onClick = {
+                    val timestamp = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    val entry = if (type == BodyStatType.BLOOD_PRESSURE) {
+                        BodyStatEntry(
+                            type = type,
+                            timestamp = timestamp,
+                            systolic = systolicText.toIntOrNull(),
+                            diastolic = diastolicText.toIntOrNull()
+                        )
+                    } else {
+                        BodyStatEntry(type = type, timestamp = timestamp, value = valueText.toDoubleOrNull())
+                    }
+                    onSave(entry)
+                }
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+
+    if (showDatePicker) {
+        val initialMillis = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val newDate = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                        dateTime = LocalDateTime.of(newDate, dateTime.toLocalTime())
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Cancel") } }
+        ) { DatePicker(state = datePickerState) }
+    }
+
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = dateTime.hour,
+            initialMinute = dateTime.minute,
+            is24Hour = false
+        )
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            text = { TimePicker(state = timePickerState) },
+            confirmButton = {
+                TextButton(onClick = {
+                    dateTime = LocalDateTime.of(dateTime.toLocalDate(), LocalTime.of(timePickerState.hour, timePickerState.minute))
+                    showTimePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showTimePicker = false }) { Text("Cancel") } }
+        )
+    }
+}
+
 @Composable
 private fun DashboardAnalytics(
     today: LocalDate,
@@ -605,7 +852,8 @@ private fun DashboardAnalytics(
     exercisesWithSessions: List<ExerciseWithSessions>,
     moodEntries: List<MoodEntry>,
     foodEntries: List<FoodLogEntry>,
-    waterLogsByDate: Map<String, WaterLog>
+    waterLogsByDate: Map<String, WaterLog>,
+    bodyStatEntries: List<BodyStatEntry>
 ) {
     val trends = remember(xpLogs, today) { statXpTrends(xpLogs, today) }
     val habitStats = remember(habitsWithLogs, today) { habitCompletionRates(habitsWithLogs, today) }
@@ -618,6 +866,9 @@ private fun DashboardAnalytics(
     val prExercises = remember(exercisesWithSessions) {
         exercisesWithSessions.filter { it.exercise.type == ExerciseType.STRENGTH }
     }
+    val weightSeries = remember(bodyStatEntries) { weightTrend(bodyStatEntries) }
+    val sugarSeries = remember(bodyStatEntries) { bloodSugarTrend(bodyStatEntries) }
+    val bpSeries = remember(bodyStatEntries) { bloodPressureTrend(bodyStatEntries) }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -730,6 +981,57 @@ private fun DashboardAnalytics(
                     )
                 }
             }
+        }
+
+        item { SectionHeader("Health Trends") }
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    HealthTrendChart("Weight (kg)", weightSeries, SystemBlue)
+                    HealthTrendChart("Blood Sugar (mmol/L)", sugarSeries, SystemGreen)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Blood Pressure (mmHg)", style = MaterialTheme.typography.labelLarge)
+                        if (bpSeries.systolic.size < 2) {
+                            Text(
+                                "Not enough readings yet",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            LineChart(
+                                series = listOf(
+                                    LineSeries("Systolic", SystemRed, bpSeries.systolic),
+                                    LineSeries("Diastolic", SystemYellow, bpSeries.diastolic)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                LegendDot("Systolic", SystemRed)
+                                LegendDot("Diastolic", SystemYellow)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthTrendChart(label: String, values: List<Float>, color: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        if (values.size < 2) {
+            Text(
+                "Not enough readings yet",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            LineChart(series = listOf(LineSeries(label, color, values)), modifier = Modifier.fillMaxWidth())
         }
     }
 }

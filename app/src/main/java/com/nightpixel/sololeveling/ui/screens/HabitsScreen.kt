@@ -30,12 +30,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -71,9 +69,12 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** The Habits sub-tab of the Routine tab (renamed from a standalone bottom-nav screen, user
+ * feedback 2026-08-30 - see `ui/screens/RoutineScreen.kt`). [showAddDialog]/[onDismissAddDialog]
+ * are lifted to the parent since the "+" that opens it lives in the shared TopAppBar, contextual
+ * to whichever sub-tab is active (the same pattern `GymScreen`'s Routine/Calendar tabs use). */
 @Composable
-fun HabitsScreen() {
+fun HabitsTab(showAddDialog: Boolean, onDismissAddDialog: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val habitDao = remember { app.database.habitDao() }
@@ -83,61 +84,47 @@ fun HabitsScreen() {
     val scope = rememberCoroutineScope()
 
     val habits by habitDao.observeHabitsWithLogs().collectAsState(initial = emptyList())
-    var showAddDialog by remember { mutableStateOf(false) }
     val today = remember { LocalDate.now() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Habits") },
-                actions = {
-                    IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add habit")
-                    }
-                }
+    val daily = habits.filter { it.habit.frequency == HabitFrequency.DAILY }
+    val weekly = habits.filter { it.habit.frequency == HabitFrequency.WEEKLY }
+
+    if (habits.isEmpty()) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "No habits yet - tap + to add one",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-    ) { innerPadding ->
-        val daily = habits.filter { it.habit.frequency == HabitFrequency.DAILY }
-        val weekly = habits.filter { it.habit.frequency == HabitFrequency.WEEKLY }
-
-        if (habits.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "No habits yet - tap + to add one",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (daily.isNotEmpty()) {
-                    item { SectionHeader("Daily") }
-                    items(daily, key = { it.habit.id }) { habitWithLogs ->
-                        HabitRow(
-                            habitWithLogs = habitWithLogs,
-                            today = today,
-                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, goldEngine, scope) },
-                            onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
-                        )
-                    }
+    } else {
+        LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (daily.isNotEmpty()) {
+                item { SectionHeader("Daily") }
+                items(daily, key = { it.habit.id }) { habitWithLogs ->
+                    HabitRow(
+                        habitWithLogs = habitWithLogs,
+                        today = today,
+                        onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, goldEngine, scope) },
+                        onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
+                    )
                 }
-                if (weekly.isNotEmpty()) {
-                    item { SectionHeader("Weekly") }
-                    items(weekly, key = { it.habit.id }) { habitWithLogs ->
-                        HabitRow(
-                            habitWithLogs = habitWithLogs,
-                            today = today,
-                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, goldEngine, scope) },
-                            onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
-                        )
-                    }
+            }
+            if (weekly.isNotEmpty()) {
+                item { SectionHeader("Weekly") }
+                items(weekly, key = { it.habit.id }) { habitWithLogs ->
+                    HabitRow(
+                        habitWithLogs = habitWithLogs,
+                        today = today,
+                        onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, goldEngine, scope) },
+                        onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
+                    )
                 }
             }
         }
@@ -145,10 +132,10 @@ fun HabitsScreen() {
 
     if (showAddDialog) {
         AddHabitDialog(
-            onDismiss = { showAddDialog = false },
+            onDismiss = onDismissAddDialog,
             onConfirm = { habit ->
                 scope.launch { habitDao.insertHabit(habit) }
-                showAddDialog = false
+                onDismissAddDialog()
             }
         )
     }
