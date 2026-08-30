@@ -2,11 +2,15 @@ package com.nightpixel.sololeveling.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -23,19 +27,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Bloodtype
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocalDrink
-import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -43,6 +49,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -95,6 +102,7 @@ import com.nightpixel.sololeveling.data.entity.XpLog
 import com.nightpixel.sololeveling.data.gamification.BloodPressureTrend
 import com.nightpixel.sololeveling.data.gamification.FoodHealthDistribution
 import com.nightpixel.sololeveling.data.gamification.HabitCompletionStat
+import com.nightpixel.sololeveling.data.gamification.HealthPeriod
 import com.nightpixel.sololeveling.data.gamification.MAX_STAT_LEVEL
 import com.nightpixel.sololeveling.data.gamification.MoodDistribution
 import com.nightpixel.sololeveling.data.gamification.QuestItem
@@ -104,10 +112,13 @@ import com.nightpixel.sololeveling.data.gamification.WeekGoodness
 import com.nightpixel.sololeveling.data.gamification.WeeklyQuestResult
 import com.nightpixel.sololeveling.data.gamification.WeeklyVolume
 import com.nightpixel.sololeveling.data.gamification.bloodPressureTrend
+import com.nightpixel.sololeveling.data.gamification.bloodPressureValues
 import com.nightpixel.sololeveling.data.gamification.bloodSugarTrend
+import com.nightpixel.sololeveling.data.gamification.bloodSugarValues
 import com.nightpixel.sololeveling.data.gamification.computeDailyQuests
 import com.nightpixel.sololeveling.data.gamification.computeRank
 import com.nightpixel.sololeveling.data.gamification.computeWeeklyQuests
+import com.nightpixel.sololeveling.data.gamification.filterByPeriod
 import com.nightpixel.sololeveling.data.gamification.foodHealthDistributionForMonth
 import com.nightpixel.sololeveling.data.gamification.goodWeekHistory
 import com.nightpixel.sololeveling.data.gamification.gymVolumeByWeek
@@ -115,6 +126,7 @@ import com.nightpixel.sololeveling.data.gamification.habitCompletionRates
 import com.nightpixel.sololeveling.data.gamification.moodDistributionForMonth
 import com.nightpixel.sololeveling.data.gamification.statXpTrends
 import com.nightpixel.sololeveling.data.gamification.weightTrend
+import com.nightpixel.sololeveling.data.gamification.weightValues
 import com.nightpixel.sololeveling.data.gamification.titleById
 import com.nightpixel.sololeveling.data.gamification.unlockedTitles
 import com.nightpixel.sololeveling.data.gamification.workoutCalendarForMonth
@@ -626,9 +638,12 @@ private fun GoalSummaryRow(
 
 /** The Dashboard's Health tab (user feedback, 2026-08-30: "I want to record my body stats. So
  * weight, blood sugar mmol/L, and blood pressure"). A quick-add row picks which [BodyStatType] to
- * log (each opens the same [AddBodyStatDialog], parameterized by type), followed by that type's
- * own recent-readings list, newest first. Trend charts for this data live on the Analytics tab
- * instead (`DashboardAnalytics`'s "Health Trends" section) rather than duplicating them here. */
+ * log (each opens the same [AddBodyStatDialog], parameterized by type); tapping a type's own
+ * section heading below drills into [HealthDetailView] for that one type (user feedback,
+ * 2026-08-26: "have an option to click the heading... swaps out the log a reading screen section
+ * for a scrollable version of the readings with a chart at the top"). Trend charts for the
+ * Analytics tab's own "Health Trends" section are separate (last-30-readings, all types at once);
+ * this detail view is per-type and period-filterable instead. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardHealth(
@@ -637,7 +652,18 @@ private fun DashboardHealth(
     onDelete: (BodyStatEntry) -> Unit
 ) {
     var addDialogType by remember { mutableStateOf<BodyStatType?>(null) }
+    var detailType by remember { mutableStateOf<BodyStatType?>(null) }
     val byType = remember(entries) { entries.groupBy { it.type } }
+
+    detailType?.let { type ->
+        HealthDetailView(
+            type = type,
+            entries = byType[type].orEmpty(),
+            onBack = { detailType = null },
+            onDelete = onDelete
+        )
+        return
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -648,7 +674,7 @@ private fun DashboardHealth(
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = { addDialogType = BodyStatType.WEIGHT }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.MonitorWeight, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Scale, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text(" Weight", style = MaterialTheme.typography.labelLarge)
                 }
                 OutlinedButton(onClick = { addDialogType = BodyStatType.BLOOD_SUGAR }, modifier = Modifier.weight(1f)) {
@@ -663,7 +689,7 @@ private fun DashboardHealth(
         }
         BodyStatType.entries.forEach { type ->
             val typeEntries = byType[type].orEmpty()
-            item { SectionHeader(type.label) }
+            item { ClickableSectionHeader(type.label, onClick = { detailType = type }) }
             if (typeEntries.isEmpty()) {
                 item {
                     Text(
@@ -687,10 +713,130 @@ private fun DashboardHealth(
     }
 }
 
+@Composable
+private fun ClickableSectionHeader(title: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        Icon(
+            Icons.Filled.ChevronRight,
+            contentDescription = "View $title history",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** The per-type drill-in view a tapped Health section heading opens: a period selector (spec-free,
+ * user-requested "weekly, monthly, 6 months, by year and all time"), a chart of that period's
+ * readings, and the full scrollable list for the period below - replacing the whole Health tab body
+ * while open (back arrow returns to it). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HealthDetailView(
+    type: BodyStatType,
+    entries: List<BodyStatEntry>,
+    onBack: () -> Unit,
+    onDelete: (BodyStatEntry) -> Unit
+) {
+    var period by remember { mutableStateOf(HealthPeriod.MONTH) }
+    val periodEntries = remember(entries, period) { filterByPeriod(entries, period) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Text(type.label, style = MaterialTheme.typography.titleLarge)
+            }
+        }
+        item {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                HealthPeriod.entries.forEach { p ->
+                    FilterChip(selected = period == p, onClick = { period = p }, label = { Text(p.label) })
+                }
+            }
+        }
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (type == BodyStatType.BLOOD_PRESSURE) {
+                        val bp = remember(periodEntries) { bloodPressureValues(periodEntries) }
+                        if (bp.systolic.size < 2) {
+                            Text(
+                                "Not enough readings in this period",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            LineChart(
+                                series = listOf(
+                                    LineSeries("Systolic", SystemRed, bp.systolic),
+                                    LineSeries("Diastolic", SystemYellow, bp.diastolic)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                LegendDot("Systolic", SystemRed)
+                                LegendDot("Diastolic", SystemYellow)
+                            }
+                        }
+                    } else {
+                        val values = remember(periodEntries, type) {
+                            if (type == BodyStatType.WEIGHT) weightValues(periodEntries) else bloodSugarValues(periodEntries)
+                        }
+                        if (values.size < 2) {
+                            Text(
+                                "Not enough readings in this period",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            LineChart(
+                                series = listOf(LineSeries(type.label, SystemBlue, values)),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (periodEntries.isEmpty()) {
+            item {
+                Text(
+                    "No entries in this period",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            items(periodEntries.sortedByDescending { it.timestamp }, key = { it.id }) { entry ->
+                BodyStatRow(entry, onDelete = { onDelete(entry) })
+            }
+        }
+    }
+}
+
 private val bodyStatTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")
 
+/** No always-visible delete button (user feedback, 2026-08-30) - long-press reveals it instead,
+ * matching a common list-row pattern; a normal tap while revealed hides it again without deleting. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BodyStatRow(entry: BodyStatEntry, onDelete: () -> Unit) {
+    var showDelete by remember(entry.id) { mutableStateOf(false) }
     val dateTime = remember(entry.timestamp) {
         LocalDateTime.ofInstant(Instant.ofEpochMilli(entry.timestamp), ZoneId.systemDefault())
     }
@@ -703,7 +849,13 @@ private fun BodyStatRow(entry: BodyStatEntry, onDelete: () -> Unit) {
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(0.dp)) {
         Row(
-            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { if (showDelete) showDelete = false },
+                    onLongClick = { showDelete = true }
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
@@ -714,8 +866,10 @@ private fun BodyStatRow(entry: BodyStatEntry, onDelete: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete entry")
+            if (showDelete) {
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete entry")
+                }
             }
         }
     }

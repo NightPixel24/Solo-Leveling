@@ -763,6 +763,34 @@ Analytics tab's new "Health Trends" section rendered all three charts (Blood Sug
 sweep showed no app crashes (only the same benign `FrameTracker` IME-animation timeout seen in every
 prior phase).
 
+**Sixth feedback pass (2026-08-30, v1.4.0 -> v1.4.1)**: same-day polish on the Health tab just
+shipped, no schema change.
+- **Weight quick-add button alignment**: the icon (`Icons.Filled.MonitorWeight`) read visibly
+  off-center next to "Weight" compared to the Sugar/BP buttons' icons, even though all three share
+  identical `OutlinedButton`/`Icon`/`Text` structure - confirmed by unzipping the extended-icons jar
+  (`unzip -l material-icons-extended-release-api.jar`) that the glyph itself, not the layout, was
+  the culprit. Swapped to `Icons.Filled.Scale` (confirmed present in the same jar first), which
+  reads centered.
+- **Delete button removed from reading rows; long-press reveals it instead** - `BodyStatRow` now
+  uses `combinedClickable` (`onLongClick` reveals a per-row `showDelete` state, a plain tap while
+  revealed hides it again without deleting) rather than an always-visible trailing icon.
+- **Tapping a type's heading (Weight/Blood Sugar/Blood Pressure) drills into a new
+  `HealthDetailView`** - replaces the whole Health tab body (back arrow returns) with a period
+  selector (`HealthPeriod`: Week/Month/6 Months/Year/All Time - `data/gamification/
+  HealthAnalytics.kt`, fixed day-counts rather than calendar-aware for simplicity) plus a chart and
+  the full scrollable reading list for that period, reusing the same `BodyStatRow` (long-press
+  delete included) and `LineChart` component the rest of the tab already uses. The Analytics tab's
+  own "Health Trends" section (last-30-readings, all types at once) is unrelated and unchanged.
+Verified on the `SoloLeveling_Pixel6` emulator (the user's phone was locked mid-session, so this
+pass was verified there instead - a plain `installDebug` update, no schema change): the Weight
+icon now reads centered next to Sugar/BP; confirmed no delete icon shows on a normal tap and
+long-pressing a specific row reveals its own delete icon (sibling rows untouched); tapped "Weight"
+and confirmed the detail view opened with all 5 period chips wrapping correctly (no repeat of the
+DayPart FlowRow bug - used FlowRow here from the start); deleted a reading from inside the detail
+view and confirmed both the chart's "not enough readings" fallback and the main Health tab's list
+updated correctly afterward. A final `adb logcat *:E` sweep showed no crashes (only the same benign
+`FrameTracker` IME-animation timeout seen throughout this session).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
