@@ -193,6 +193,25 @@ suspend fun logWaterBottle(
     return newBottles to goal
 }
 
+/** The Dashboard's "At a Glance" checklist (user feedback, 2026-08-30) - ticking off "hit water
+ * goal" there jumps straight to the goal in one tap rather than requiring `goalBottles` individual
+ * taps, since a checkbox reads as "mark this done," not "add one more cup." Shares the exact same
+ * goal-default/one-time-`xpGranted` bookkeeping [logWaterBottle] and the Water tab's own cup taps
+ * already use. A no-op if the goal's already met (so re-tapping an already-checked box is safe). */
+suspend fun markWaterGoalHit(
+    waterDao: WaterDao,
+    foodDao: FoodDao,
+    xpEngine: XpEngine,
+    date: String,
+    currentLog: WaterLog?
+) {
+    val goal = currentLog?.goalBottles ?: waterDao.getLatestGoal() ?: 8
+    if ((currentLog?.bottlesLogged ?: 0) >= goal) return
+    val alreadyGranted = currentLog?.xpGranted ?: false
+    waterDao.upsertLog(WaterLog(date = date, bottlesLogged = goal, goalBottles = goal, xpGranted = true))
+    if (!alreadyGranted) xpEngine.grant(StatTag.VIT, applyVitalityMultiplier(foodDao, 10), "Water goal hit")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SetGoalDialog(

@@ -36,19 +36,24 @@ import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -79,11 +84,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.entity.BodyStatEntry
 import com.nightpixel.sololeveling.data.entity.BodyStatType
+import com.nightpixel.sololeveling.data.entity.CalendarEventCache
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.ExerciseWithSessions
 import com.nightpixel.sololeveling.data.entity.FoodLogEntry
@@ -94,10 +101,13 @@ import com.nightpixel.sololeveling.data.entity.HabitFrequency
 import com.nightpixel.sololeveling.data.entity.HabitWithLogs
 import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.PlayerProfile
+import com.nightpixel.sololeveling.data.entity.RoutineItem
+import com.nightpixel.sololeveling.data.entity.ScheduledWorkout
 import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Task
+import com.nightpixel.sololeveling.data.entity.TaskList
 import com.nightpixel.sololeveling.data.entity.WaterLog
 import com.nightpixel.sololeveling.data.entity.XpLog
 import com.nightpixel.sololeveling.data.gamification.BloodPressureTrend
@@ -106,25 +116,25 @@ import com.nightpixel.sololeveling.data.gamification.HabitCompletionStat
 import com.nightpixel.sololeveling.data.gamification.HealthPeriod
 import com.nightpixel.sololeveling.data.gamification.MAX_STAT_LEVEL
 import com.nightpixel.sololeveling.data.gamification.MoodDistribution
-import com.nightpixel.sololeveling.data.gamification.QuestItem
+import com.nightpixel.sololeveling.data.gamification.NextUpItem
 import com.nightpixel.sololeveling.data.gamification.RankTier
 import com.nightpixel.sololeveling.data.gamification.Title
 import com.nightpixel.sololeveling.data.gamification.WeekGoodness
-import com.nightpixel.sololeveling.data.gamification.WeeklyQuestResult
 import com.nightpixel.sololeveling.data.gamification.WeeklyVolume
 import com.nightpixel.sololeveling.data.gamification.bloodPressureTrend
 import com.nightpixel.sololeveling.data.gamification.bloodPressureValues
 import com.nightpixel.sololeveling.data.gamification.bloodSugarTrend
 import com.nightpixel.sololeveling.data.gamification.bloodSugarValues
-import com.nightpixel.sololeveling.data.gamification.computeDailyQuests
 import com.nightpixel.sololeveling.data.gamification.computeRank
-import com.nightpixel.sololeveling.data.gamification.computeWeeklyQuests
 import com.nightpixel.sololeveling.data.gamification.filterByPeriod
 import com.nightpixel.sololeveling.data.gamification.foodHealthDistributionForMonth
 import com.nightpixel.sololeveling.data.gamification.goodWeekHistory
 import com.nightpixel.sololeveling.data.gamification.gymVolumeByWeek
 import com.nightpixel.sololeveling.data.gamification.habitCompletionRates
 import com.nightpixel.sololeveling.data.gamification.moodDistributionForMonth
+import com.nightpixel.sololeveling.data.gamification.nextCalendarEvent
+import com.nightpixel.sololeveling.data.gamification.nextHabit
+import com.nightpixel.sololeveling.data.gamification.nextRoutineItem
 import com.nightpixel.sololeveling.data.gamification.statXpTrends
 import com.nightpixel.sololeveling.data.gamification.weightTrend
 import com.nightpixel.sololeveling.data.gamification.weightValues
@@ -191,8 +201,12 @@ fun DashboardScreen(
     val moodDao = remember { app.database.moodDao() }
     val foodDao = remember { app.database.foodDao() }
     val taskDao = remember { app.database.taskDao() }
+    val taskListDao = remember { app.database.taskListDao() }
     val playerProfileDao = remember { app.database.playerProfileDao() }
     val splitDayDao = remember { app.database.splitDayDao() }
+    val scheduledWorkoutDao = remember { app.database.scheduledWorkoutDao() }
+    val routineDao = remember { app.database.routineDao() }
+    val calendarDao = remember { app.database.calendarDao() }
     val healthDao = remember { app.database.healthDao() }
     val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
@@ -216,6 +230,10 @@ fun DashboardScreen(
     val today = remember { LocalDate.now() }
     val todayStr = remember(today) { today.toString() }
     val currentMonth = remember(today) { YearMonth.from(today) }
+    // A one-shot "now" for the whole composition, same "computed once, not live-ticking" approach
+    // `today` above already established - "at a glance" doesn't need to redraw as the clock ticks,
+    // only when the underlying data changes (a habit gets checked off, an event gets added, etc.).
+    val nowMinute = remember { LocalTime.now().let { it.hour * 60 + it.minute } }
     val weekDays = remember(today) {
         val monday = today.with(DayOfWeek.MONDAY)
         (0..6).map { monday.plusDays(it.toLong()) }
@@ -228,36 +246,50 @@ fun DashboardScreen(
     val moodEntries by moodDao.observeEntries().collectAsState(initial = emptyList())
     val foodEntries by foodDao.observeEntries().collectAsState(initial = emptyList())
     val allTasks by taskDao.observeAllTasks().collectAsState(initial = emptyList())
+    val taskLists by taskListDao.observeLists().collectAsState(initial = emptyList())
     val xpLogs by statDao.observeXpLogs().collectAsState(initial = emptyList())
     val waterLogsByDate = remember(allWaterLogs) { allWaterLogs.associateBy { it.date } }
     val splitDays by splitDayDao.observeSplitDays().collectAsState(initial = emptyList())
+    val scheduledWorkouts by scheduledWorkoutDao.observeAll().collectAsState(initial = emptyList())
+    val routineItems by routineDao.observeItems().collectAsState(initial = emptyList())
+    val calendarEvents by calendarDao.observeEvents().collectAsState(initial = emptyList())
     val bodyStatEntries by healthDao.observeEntries().collectAsState(initial = emptyList())
     val workoutsByDate = remember(exercisesWithSessions, splitDays, currentMonth) {
         workoutCalendarForMonth(currentMonth, exercisesWithSessions, splitDays)
     }
 
-    val dailyQuests = remember(habitsWithLogs, exercisesWithSessions, todayWaterLog, moodEntries, allTasks, today) {
-        computeDailyQuests(
-            today = today,
-            habitsWithLogs = habitsWithLogs,
-            exercisesWithSessions = exercisesWithSessions,
-            waterLog = todayWaterLog,
-            moodLoggedToday = moodEntries.any { it.date == todayStr },
-            allTasks = allTasks
-        )
+    // "At a Glance" (user feedback, 2026-08-30: replaces Today's/This Week's Quests - "start
+    // fresh... at a glance window to see what's upcoming next") - three independent "next" signals
+    // rather than one merged list, matching how the user described them separately.
+    val habitTitleById = remember(habitsWithLogs) { habitsWithLogs.associate { it.habit.id to it.habit.title } }
+    val nextRoutine = remember(routineItems, habitTitleById, nowMinute) {
+        nextRoutineItem(routineItems, habitTitleById, nowMinute)
     }
-    val weeklyQuests = remember(habitsWithLogs, exercisesWithSessions, allWaterLogs, today, weekDays) {
-        computeWeeklyQuests(
-            today = today,
-            weekDays = weekDays,
-            habitsWithLogs = habitsWithLogs,
-            exercisesWithSessions = exercisesWithSessions,
-            waterLogsByDate = waterLogsByDate
-        )
+    val nextHabitUp = remember(habitsWithLogs, today, nowMinute) {
+        nextHabit(habitsWithLogs, today, nowMinute)
+    }
+    val nextEvent = remember(calendarEvents) { nextCalendarEvent(calendarEvents, Instant.now()) }
+    val todaysWorkout = remember(scheduledWorkouts, splitDays, today) {
+        scheduledWorkouts.find { it.dayOfWeek == today.dayOfWeek.value }
+            ?.let { sw -> splitDays.find { it.id == sw.splitDayId } }
+    }
+    val todaysWorkoutDone = remember(exercisesWithSessions, todaysWorkout, todayStr) {
+        todaysWorkout != null && exercisesWithSessions.any { ews ->
+            ews.exercise.splitDayId == todaysWorkout.id && ews.sessions.any { it.date == todayStr }
+        }
+    }
+    val waterGoalHitToday = todayWaterLog?.let { it.bottlesLogged >= it.goalBottles } ?: false
+    val foodLoggedToday = remember(foodEntries, todayStr) { foodEntries.any { it.date == todayStr } }
+    val moodLoggedToday = remember(moodEntries, todayStr) { moodEntries.any { it.date == todayStr } }
+    val dailyHabits = remember(habitsWithLogs) { habitsWithLogs.filter { it.habit.frequency == HabitFrequency.DAILY } }
+    val dailyHabitsDone = remember(dailyHabits, todayStr) {
+        dailyHabits.count { hwl -> hwl.logs.any { it.date == todayStr && it.done } }
     }
 
     var tab by remember { mutableStateOf(DashboardTab.HOME) }
     var showHabitPicker by remember { mutableStateOf(false) }
+    var showTaskQuickAdd by remember { mutableStateOf(false) }
+    var showFoodDialog by remember { mutableStateOf(false) }
     var pendingPhotoFile by remember { mutableStateOf<File?>(null) }
     var capturedPhotoFile by remember { mutableStateOf<File?>(null) }
 
@@ -321,18 +353,25 @@ fun DashboardScreen(
                     onNameClick = { showRenameDialog = true },
                     onTitleClick = { showTitlePicker = true },
                     orderedStats = orderedStats,
-                    dailyQuests = dailyQuests,
-                    weeklyQuests = weeklyQuests,
+                    nextRoutine = nextRoutine,
+                    nextHabitUp = nextHabitUp,
+                    nextEvent = nextEvent,
+                    todaysWorkout = todaysWorkout,
+                    todaysWorkoutDone = todaysWorkoutDone,
+                    waterGoalHitToday = waterGoalHitToday,
+                    todayWaterLog = todayWaterLog,
+                    foodLoggedToday = foodLoggedToday,
+                    moodLoggedToday = moodLoggedToday,
+                    dailyHabitsDone = dailyHabitsDone,
+                    dailyHabitsTotal = dailyHabits.size,
                     goals = goals,
                     allTasks = allTasks,
                     currentMonth = currentMonth,
                     moodEntriesByDate = remember(moodEntries) { moodEntries.associateBy { it.date } },
                     onMoodClick = onMoodClick,
-                    splitDays = splitDays,
-                    workoutsByDate = workoutsByDate,
                     onGymClick = onGymClick,
                     onGoalsSummaryClick = onGoalsClick,
-                    onQuickAddHabit = { showHabitPicker = true },
+                    onQuickAddTask = { showTaskQuickAdd = true },
                     onQuickAddWater = {
                         scope.launch {
                             val (logged, goal) = logWaterBottle(waterDao, foodDao, xpEngine, todayStr, todayWaterLog)
@@ -344,7 +383,11 @@ fun DashboardScreen(
                             snackbarHostState.showSnackbar(message)
                         }
                     },
-                    onQuickAddFood = { launchFoodCamera() }
+                    onQuickAddFood = { showFoodDialog = true },
+                    onTickWaterGoal = { scope.launch { markWaterGoalHit(waterDao, foodDao, xpEngine, todayStr, todayWaterLog) } },
+                    onTickFood = { showFoodDialog = true },
+                    onTickMood = onMoodClick,
+                    onTickHabits = { showHabitPicker = true }
                 )
                 DashboardTab.HEALTH -> DashboardHealth(
                     entries = bodyStatEntries,
@@ -360,7 +403,10 @@ fun DashboardScreen(
                     moodEntries = moodEntries,
                     foodEntries = foodEntries,
                     waterLogsByDate = waterLogsByDate,
-                    bodyStatEntries = bodyStatEntries
+                    bodyStatEntries = bodyStatEntries,
+                    splitDays = splitDays,
+                    workoutsByDate = workoutsByDate,
+                    onGymClick = onGymClick
                 )
             }
         }
@@ -409,17 +455,37 @@ fun DashboardScreen(
         )
     }
 
-    capturedPhotoFile?.let { file ->
+    // Both Quick Add's Food button and the At a Glance checklist's "Food" row open this same
+    // dialog directly (photo optional inside, via `onTakePhoto`) rather than launching the camera
+    // first - matches FoodScreen's own single-entry-point flow (third feedback pass, 2026-08-26:
+    // "I dont like how theres an edit button and camera button seperate from each other"), which
+    // the Dashboard's old camera-first shortcut had drifted from.
+    if (showFoodDialog || capturedPhotoFile != null) {
+        val file = capturedPhotoFile
         ConfirmFoodDialog(
-            photoUri = photoFileUri(context, file),
+            photoUri = file?.let { photoFileUri(context, it) },
             onTakePhoto = { launchFoodCamera() },
             onDismiss = {
-                file.delete()
+                file?.delete()
                 capturedPhotoFile = null
+                showFoodDialog = false
             },
             onSave = { description, rating ->
-                scope.launch { logFood(foodDao, xpEngine, photoFileUri(context, file).toString(), description, rating) }
+                val photoUriString = file?.let { photoFileUri(context, it).toString() }
+                scope.launch { logFood(foodDao, xpEngine, photoUriString, description, rating) }
                 capturedPhotoFile = null
+                showFoodDialog = false
+            }
+        )
+    }
+
+    if (showTaskQuickAdd) {
+        TaskQuickAddDialog(
+            taskLists = taskLists,
+            onDismiss = { showTaskQuickAdd = false },
+            onConfirm = { title, listId ->
+                scope.launch { taskDao.insertTask(Task(title = title, listId = listId)) }
+                showTaskQuickAdd = false
             }
         )
     }
@@ -456,6 +522,10 @@ fun DashboardScreen(
     }
 }
 
+/** The Home tab, rewritten per user feedback (2026-08-30: "let's start fresh") - Today's/This
+ * Week's Quests and the Workout Calendar preview are gone (the latter moved to Analytics), the old
+ * Habit quick-add is replaced by a Task quick-add, and a new "At a Glance" section (next-up signals
+ * plus a today checklist) now sits above Quick Add, with the Rank/stat block moved below it. */
 @Composable
 private fun DashboardHome(
     rank: RankTier,
@@ -465,20 +535,31 @@ private fun DashboardHome(
     onNameClick: () -> Unit,
     onTitleClick: () -> Unit,
     orderedStats: List<Stat>,
-    dailyQuests: List<QuestItem>,
-    weeklyQuests: WeeklyQuestResult,
+    nextRoutine: NextUpItem?,
+    nextHabitUp: NextUpItem?,
+    nextEvent: CalendarEventCache?,
+    todaysWorkout: SplitDay?,
+    todaysWorkoutDone: Boolean,
+    waterGoalHitToday: Boolean,
+    todayWaterLog: WaterLog?,
+    foodLoggedToday: Boolean,
+    moodLoggedToday: Boolean,
+    dailyHabitsDone: Int,
+    dailyHabitsTotal: Int,
     goals: List<Goal>,
     allTasks: List<Task>,
     currentMonth: YearMonth,
     moodEntriesByDate: Map<String, MoodEntry>,
     onMoodClick: () -> Unit,
-    splitDays: List<SplitDay>,
-    workoutsByDate: Map<LocalDate, SplitDay>,
     onGymClick: () -> Unit,
     onGoalsSummaryClick: () -> Unit,
-    onQuickAddHabit: () -> Unit,
+    onQuickAddTask: () -> Unit,
     onQuickAddWater: () -> Unit,
-    onQuickAddFood: () -> Unit
+    onQuickAddFood: () -> Unit,
+    onTickWaterGoal: () -> Unit,
+    onTickFood: () -> Unit,
+    onTickMood: () -> Unit,
+    onTickHabits: () -> Unit
 ) {
     val tierGoals = remember(goals) {
         GoalTier.entries.mapNotNull { tier ->
@@ -493,6 +574,29 @@ private fun DashboardHome(
         contentPadding = PaddingValues(24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
+        item { SectionHeader("At a Glance") }
+        item {
+            NextUpCard(nextRoutine = nextRoutine, nextHabitUp = nextHabitUp, nextEvent = nextEvent)
+        }
+        item {
+            TodayChecklistCard(
+                todaysWorkout = todaysWorkout,
+                todaysWorkoutDone = todaysWorkoutDone,
+                waterGoalHitToday = waterGoalHitToday,
+                todayWaterLog = todayWaterLog,
+                foodLoggedToday = foodLoggedToday,
+                moodLoggedToday = moodLoggedToday,
+                dailyHabitsDone = dailyHabitsDone,
+                dailyHabitsTotal = dailyHabitsTotal,
+                onGymClick = onGymClick,
+                onTickWaterGoal = onTickWaterGoal,
+                onTickFood = onTickFood,
+                onTickMood = onTickMood,
+                onTickHabits = onTickHabits
+            )
+        }
+        item { SectionHeader("Quick Add") }
+        item { QuickAddRow(onQuickAddTask, onQuickAddWater, onQuickAddFood) }
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -517,27 +621,6 @@ private fun DashboardHome(
         }
         items(orderedStats, key = { it.tag }) { stat ->
             StatRow(stat)
-        }
-        item { SectionHeader("Quick Add") }
-        item { QuickAddRow(onQuickAddHabit, onQuickAddWater, onQuickAddFood) }
-        if (dailyQuests.isNotEmpty()) {
-            item { SectionHeader("Today's Quests") }
-            item { QuestList(dailyQuests) }
-        }
-        item { SectionHeader("This Week's Quests") }
-        item { WeeklyQuestCard(weeklyQuests.items, weeklyQuests.goodWeek) }
-        item { SectionHeader("Workout Calendar") }
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onGymClick),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(0.dp)
-            ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    WorkoutMonthCalendar(month = currentMonth, workoutsByDate = workoutsByDate, onDayClick = { onGymClick() })
-                    if (splitDays.isNotEmpty()) WorkoutCalendarLegend(splitDays)
-                }
-            }
         }
         item { SectionHeader("Mood This Month") }
         item {
@@ -564,22 +647,186 @@ private fun DashboardHome(
     }
 }
 
+/** Up to three independent "what's next" rows (user feedback, 2026-08-30) - Routine schedule,
+ * habits, and calendar each only show up when something with an actual time still lies ahead
+ * today (see [nextRoutineItem]/[nextHabit]/[nextCalendarEvent]'s doc comments). All three empty is
+ * a real, expected state (nothing time-specific left today), not an error - shown as one quiet line
+ * instead of an empty card. */
 @Composable
-private fun QuickAddRow(onHabit: () -> Unit, onWater: () -> Unit, onFood: () -> Unit) {
+private fun NextUpCard(nextRoutine: NextUpItem?, nextHabitUp: NextUpItem?, nextEvent: CalendarEventCache?) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Next Up", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (nextRoutine == null && nextHabitUp == null && nextEvent == null) {
+                Text(
+                    "Nothing else scheduled today",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                nextRoutine?.let { NextUpRow(Icons.Filled.Schedule, it.label, formatMinutes(it.minuteOfDay)) }
+                nextHabitUp?.let { NextUpRow(Icons.Filled.Repeat, it.label, formatMinutes(it.minuteOfDay)) }
+                nextEvent?.let {
+                    val time = Instant.ofEpochMilli(it.start).atZone(ZoneId.systemDefault()).toLocalTime()
+                    NextUpRow(Icons.Filled.Event, it.title, time.format(DateTimeFormatter.ofPattern("h:mm a")))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextUpRow(icon: ImageVector, label: String, time: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(time, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** "What's coming up in the day" (user feedback, 2026-08-30) - a broader, not-immediate view than
+ * [NextUpCard]: today's gym split, and whether water/food/mood/habits are logged yet. Water/Food/
+ * Mood/Habits are real checkboxes a tap can act on directly (see each `onTick*` callback's own
+ * wiring in `DashboardScreen`); Gym shows status but taps through to the Gym screen instead, since
+ * "done" there means logging real sets/reps/weight, not something a single tap can represent. */
+@Composable
+private fun TodayChecklistCard(
+    todaysWorkout: SplitDay?,
+    todaysWorkoutDone: Boolean,
+    waterGoalHitToday: Boolean,
+    todayWaterLog: WaterLog?,
+    foodLoggedToday: Boolean,
+    moodLoggedToday: Boolean,
+    dailyHabitsDone: Int,
+    dailyHabitsTotal: Int,
+    onGymClick: () -> Unit,
+    onTickWaterGoal: () -> Unit,
+    onTickFood: () -> Unit,
+    onTickMood: () -> Unit,
+    onTickHabits: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "Coming Up Today",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            ChecklistRow(
+                label = todaysWorkout?.let { "Workout: ${it.name}" } ?: "No workout scheduled today",
+                checked = todaysWorkoutDone,
+                onClick = onGymClick
+            )
+            val goalBottles = todayWaterLog?.goalBottles ?: 8
+            val loggedBottles = todayWaterLog?.bottlesLogged ?: 0
+            ChecklistRow(
+                label = "Hit water goal ($loggedBottles/$goalBottles cups)",
+                checked = waterGoalHitToday,
+                onClick = { if (!waterGoalHitToday) onTickWaterGoal() }
+            )
+            ChecklistRow(label = "Log food today", checked = foodLoggedToday, onClick = { if (!foodLoggedToday) onTickFood() })
+            ChecklistRow(label = "Log today's mood", checked = moodLoggedToday, onClick = { if (!moodLoggedToday) onTickMood() })
+            ChecklistRow(
+                label = "Daily habits ($dailyHabitsDone/$dailyHabitsTotal done)",
+                checked = dailyHabitsTotal > 0 && dailyHabitsDone >= dailyHabitsTotal,
+                onClick = onTickHabits
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChecklistRow(label: String, checked: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(checked = checked, onCheckedChange = { onClick() })
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun QuickAddRow(onTask: () -> Unit, onWater: () -> Unit, onFood: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedButton(onClick = onHabit, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.Repeat, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(" Habit", style = MaterialTheme.typography.labelLarge)
+        OutlinedButton(onClick = onTask, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Task", style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
         OutlinedButton(onClick = onWater, modifier = Modifier.weight(1f)) {
             Icon(Icons.Filled.LocalDrink, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(" Water", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.width(6.dp))
+            Text("Water", style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
         OutlinedButton(onClick = onFood, modifier = Modifier.weight(1f)) {
             Icon(Icons.Filled.AddAPhoto, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(" Food", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.width(6.dp))
+            Text("Food", style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskQuickAddDialog(
+    taskLists: List<TaskList>,
+    onDismiss: () -> Unit,
+    onConfirm: (title: String, listId: Long) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    // Defaults to the permanent "Daily" list (TaskList.DEFAULT_ID) - user feedback, 2026-08-30:
+    // "by default, it should add to the daily task section, but it should also have a drop down to
+    // show me the task list... if I wanna add it to a different task list."
+    var selectedListId by remember(taskLists) { mutableStateOf(TaskList.DEFAULT_ID) }
+    var expanded by remember { mutableStateOf(false) }
+    val selectedListName = taskLists.find { it.id == selectedListId }?.name ?: "Daily"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Task") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Box {
+                    OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("List: $selectedListName", modifier = Modifier.weight(1f))
+                        Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        taskLists.forEach { list ->
+                            DropdownMenuItem(
+                                text = { Text(list.name) },
+                                onClick = { selectedListId = list.id; expanded = false }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (title.isNotBlank()) onConfirm(title.trim(), selectedListId) },
+                enabled = title.isNotBlank()
+            ) { Text("Add") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -1016,7 +1263,10 @@ private fun DashboardAnalytics(
     moodEntries: List<MoodEntry>,
     foodEntries: List<FoodLogEntry>,
     waterLogsByDate: Map<String, WaterLog>,
-    bodyStatEntries: List<BodyStatEntry>
+    bodyStatEntries: List<BodyStatEntry>,
+    splitDays: List<SplitDay>,
+    workoutsByDate: Map<LocalDate, SplitDay>,
+    onGymClick: () -> Unit
 ) {
     val trends = remember(xpLogs, today) { statXpTrends(xpLogs, today) }
     val habitStats = remember(habitsWithLogs, today) { habitCompletionRates(habitsWithLogs, today) }
@@ -1054,6 +1304,23 @@ private fun DashboardAnalytics(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         StatTag.entries.forEach { tag -> LegendDot(tag.name, statTagColor(tag)) }
                     }
+                }
+            }
+        }
+
+        // Moved here from the Home tab (user feedback, 2026-08-30: "move out the workout
+        // calendar... putting that under the analytics section") - Home now leads with the "At a
+        // Glance" checklist instead.
+        item { SectionHeader("Workout Calendar") }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onGymClick),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WorkoutMonthCalendar(month = currentMonth, workoutsByDate = workoutsByDate, onDayClick = { onGymClick() })
+                    if (splitDays.isNotEmpty()) WorkoutCalendarLegend(splitDays)
                 }
             }
         }
@@ -1310,50 +1577,6 @@ private fun GoodWeekRow(weeks: List<WeekGoodness>) {
 @Composable
 private fun SectionHeader(title: String) {
     Text(title, style = MaterialTheme.typography.titleMedium)
-}
-
-@Composable
-private fun QuestList(quests: List<QuestItem>) {
-    Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(0.dp)
-            ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            quests.forEach { quest -> QuestRow(quest) }
-        }
-    }
-}
-
-@Composable
-private fun QuestRow(quest: QuestItem) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(
-            if (quest.done) Icons.Filled.Check else Icons.Filled.RadioButtonUnchecked,
-            contentDescription = null,
-            tint = if (quest.done) SystemGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp)
-        )
-        Text(
-            quest.label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (quest.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
-        )
-    }
-}
-
-@Composable
-private fun WeeklyQuestCard(items: List<QuestItem>, goodWeek: Boolean) {
-    Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(0.dp)
-            ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items.forEach { quest -> QuestRow(quest) }
-            if (goodWeek) {
-                Text("Good week!", color = SystemGreen, style = MaterialTheme.typography.labelLarge)
-            }
-        }
-    }
 }
 
 private fun cleanNumber(value: Double): String =

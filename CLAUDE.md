@@ -989,6 +989,65 @@ IME-animation timeout seen throughout this session, a 2-day-old unrelated `monit
 routine `PackageManager`/`HCPackageInfoUtils` noise from the instrumented test APK's own
 install/uninstall cycle, not from the app itself).
 
+**Eleventh feedback pass (2026-08-30, v1.6.0 -> v1.7.0)**: Dashboard Home tab rebuilt from
+scratch per user feedback ("let's start fresh... I don't need to see today's quest or this week's
+quest"). No schema change - everything here is UI/query logic over data other phases already
+persist, the same "derive, don't store" approach the rest of the app already follows, so this
+landed without a migration.
+- **Today's/This Week's Quests removed outright** - `QuestList`/`QuestRow`/`WeeklyQuestCard` (the
+  Home-tab-only composables rendering them) deleted along with the `dailyQuests`/`weeklyQuests`
+  computations in `DashboardScreen`; `computeDailyQuests`/`computeWeeklyQuests` themselves stay in
+  `Quests.kt` untouched since Rewards' good-week eligibility and Punishments' miss-detection both
+  still call them directly - only the Home tab's own display of them is gone.
+- **New "At a Glance" section, above Quick Add**: `data/gamification/AtAGlance.kt`'s three pure
+  functions (`nextRoutineItem`/`nextHabit`/`nextCalendarEvent`) each surface one independent
+  "what's next" signal - Routine schedule, habits, calendar - matching how the user described them
+  separately rather than one merged list; all three only consider items with an actual time set
+  (a plain day-part-only Routine item or a no-reminder habit isn't "next" in any orderable sense).
+  Below that, a "Coming Up Today" checklist: today's scheduled workout (from the tenth pass's new
+  `ScheduledWorkout`), water goal, food logged, mood logged, and daily habit completion - Water/
+  Food/Mood/Habits are real one-tap checkboxes (Water jumps straight to goal via new
+  `markWaterGoalHit` in `WaterScreen.kt`, mirroring `logWaterBottle`'s exact bookkeeping; Food/Mood/
+  Habits open the same dialogs/pickers their own screens already use), while Gym shows status but
+  taps through to the Gym screen instead, since "done" there means real sets/reps/weight, not
+  something a single tap can represent.
+- **Habit quick-add replaced with Task quick-add** (user feedback: "we don't really need habits
+  anymore because [they] don't really change that often day to day... instead I want a task quick
+  add... by default it should add to the daily task section, but also a drop down to show me the
+  task list if I want a different one"). New `TaskQuickAddDialog` - title field plus a
+  `DropdownMenu` of `TaskList`s, defaulting to `TaskList.DEFAULT_ID` (the permanent "Daily" list,
+  already the default on the `Task` entity itself, so no extra logic needed for the "default to
+  Daily" half of the ask). The old habit-picker dialog isn't gone - it's still reachable from the
+  new "Daily habits" checklist row instead of a dedicated quick-add button.
+- **Food quick-add simplified to match FoodScreen's own flow** - previously camera-first
+  (`launchFoodCamera()` immediately), now opens the same `ConfirmFoodDialog` directly with the
+  photo optional inside (an "Add a photo" prompt), matching the third feedback pass's "single entry
+  point" fix to `FoodScreen` itself, which the Dashboard's shortcut had drifted from. Both the Quick
+  Add Food button and the new "Log food today" checklist row share this one dialog/state.
+- **Rank badge + stat bars moved below Quick Add** (user feedback: "after that, then you can have
+  the E rank hunter section with stats underneath") - previously the very first thing on Home.
+- **Workout Calendar moved to the Analytics tab** (user feedback: "move out the workout calendar...
+  putting that under the analytics section"), placed right after Stat Trends; `DashboardAnalytics`
+  gained `splitDays`/`workoutsByDate`/`onGymClick` params it didn't need before. Mood This Month and
+  the Life Goals summary stay on Home, unchanged - the user's phrasing here was ambiguous enough
+  ("move out the workout calendar and move this month calendar instead") to possibly mean the mood
+  heatmap too, but Analytics already has its own separate mood-distribution section, so a second
+  redundant one felt like the less likely reading; flagged here in case that's wrong.
+Verified on the `SoloLeveling_Pixel6` emulator (plain `installDebug`, no migration to test): Home
+tab renders "At a Glance" (Next Up showing "Nothing else scheduled today" with no time-specific
+items yet, Coming Up Today checklist) directly above Quick Add's Task/Water/Food row, with Rank/
+Stats/Mood below; added a task via the new dialog and confirmed it landed in the protected "Daily"
+list (verified on the real Tasks screen, not just the dialog closing); tapped the water-goal
+checklist row and confirmed it jumped straight to "8/8 cups" in one tap, matching a live water-log
+upsert; tapped "Log food today" and confirmed it opens the exact same optional-photo dialog
+FoodScreen's own FAB uses; confirmed the Workout Calendar now renders under Analytics, right after
+Stat Trends, and is gone from Home. Also installed to the user's real Pixel 7 (confirming the build
+installs cleanly on real hardware) but the device was locked with no way to unlock it
+non-interactively this session, so the manual walkthrough above is emulator-only for this pass. A
+final `adb logcat *:E` sweep on the emulator showed no new app crashes (the same benign
+`FrameTracker` IME-animation timeout and the earlier `NotifAttentionHelper` noise from the tenth
+pass's own notification testing, not from this pass).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
