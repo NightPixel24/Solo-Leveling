@@ -142,6 +142,9 @@ import com.nightpixel.sololeveling.data.gamification.titleById
 import com.nightpixel.sololeveling.data.gamification.unlockedTitles
 import com.nightpixel.sololeveling.data.gamification.workoutCalendarForMonth
 import com.nightpixel.sololeveling.data.gamification.xpForLevel
+import com.nightpixel.sololeveling.ui.components.GlowCard
+import com.nightpixel.sololeveling.ui.components.GradientDivider
+import com.nightpixel.sololeveling.ui.components.GradientProgressBar
 import com.nightpixel.sololeveling.ui.components.LineChart
 import com.nightpixel.sololeveling.ui.components.LineSeries
 import com.nightpixel.sololeveling.ui.components.MonthHeatmap
@@ -339,6 +342,7 @@ fun DashboardScreen(
                         Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.label) })
                     }
                 }
+                GradientDivider()
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -633,10 +637,7 @@ private fun DashboardHome(
  * instead of an empty card. */
 @Composable
 private fun NextUpCard(nextRoutine: NextUpItem?, nextHabitUp: NextUpItem?, nextEvent: CalendarEventCache?) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(0.dp)
-    ) {
+    GlowCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Next Up", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (nextRoutine == null && nextHabitUp == null && nextEvent == null) {
@@ -687,10 +688,7 @@ private fun TodayChecklistCard(
     onTickMood: () -> Unit,
     onTickHabits: () -> Unit
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(0.dp)
-    ) {
+    GlowCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 "Coming Up Today",
@@ -1589,10 +1587,10 @@ private fun StatRow(stat: Stat) {
             )
         }
         if (stat.level < MAX_STAT_LEVEL) {
-            LinearProgressIndicator(
-                progress = { (stat.currentXp.toFloat() / needed).coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth(),
-                color = color
+            GradientProgressBar(
+                progress = stat.currentXp.toFloat() / needed,
+                baseColor = color,
+                modifier = Modifier.fillMaxWidth()
             )
             Text(
                 "${stat.currentXp} / $needed XP",

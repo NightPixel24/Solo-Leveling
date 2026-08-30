@@ -1073,6 +1073,49 @@ takes over the scroll). Also installed to the user's real Pixel 7. A final `adb 
 showed no new app crashes (same benign `FrameTracker`/`NotifAttentionHelper` entries seen
 throughout this session).
 
+**Thirteenth feedback pass (2026-08-30, v1.7.1 -> v1.8.0)**: visual refresh (user feedback: "the
+UI looks a bit dated. Make it looks a bit cooler, more modern, futuristic"). No schema change - a
+theme/component pass, not a feature. Scoped to theme-level changes (which cascade to every screen
+for free, since nothing here overrides Material3's defaults) plus hand-crafted glow/gradient
+treatment on the Dashboard specifically, as the flagship screen - not a screen-by-screen redesign
+of all ~20 screens in one pass.
+- **Deepened palette** (`Color.kt`): background/surface/surfaceVariant all pulled darker for more
+  contrast between the background and cards sitting on it (0A0A12->07070D, 13131F->121220,
+  1B1B2C->1C1C30). New `SystemCyan` accent - deliberately not used by any `StatTag` color (all
+  five are already spoken for), reserved purely for "system chrome": card glows, the Rank badge's
+  ring, progress-bar fills.
+- **Wired into the color scheme** (`Theme.kt`): `SystemCyan` as `tertiary`; `outline` set to a dim
+  translucent blue instead of Material3's default warm gray - since `OutlinedButton`/
+  `OutlinedTextField` both reach for `colorScheme.outline` internally, every outlined control
+  app-wide (all the Quick Add buttons, every dialog's text fields) picked up a blue-tinted border
+  for free, no call sites touched.
+- **Larger, more rounded `Shapes`** (`Theme.kt`) - every `Card`/`Button`/`Dialog` in the app already
+  relies on Material3's shape defaults rather than passing an explicit `shape`, so bumping
+  small/medium/large (12/18/26dp, was ~8/12/16dp) reshaped every screen's cards at once with zero
+  other changes.
+- **New shared components** (`ui/components/`): `Gradients.kt` (`accentGradient()` - the one
+  blue->cyan brush every glow effect below reuses, rather than each site rebuilding its own),
+  `GlowCard.kt` (a `Card` replacement with a translucent gradient tint + thin gradient border -
+  the "glass panel" look, applied to the Dashboard's "At a Glance" cards only this pass; other
+  screens' plain `Card`s are unchanged, straightforward to swap over later the same way),
+  `GradientProgressBar.kt` (replaces `LinearProgressIndicator` for the Dashboard's stat XP bars -
+  gradient fill plus a glowing ring at the fill's leading edge, reading as an "energy bar" rather
+  than a stock Android progress bar), `GradientDivider.kt` (a thin gradient line, dropped under the
+  Dashboard's `TabRow` in place of Material3's flat default one).
+- **`RankBadge`** rebuilt with a real glow - `Modifier.shadow(... ambientColor/spotColor = SystemCyan)`
+  behind the badge (Compose's shadow API supports colored shadows since 1.2) plus a gradient ring
+  instead of the old flat `BorderStroke`, so it now reads as an actual halo around the badge rather
+  than a plain outlined circle.
+Verified on the `SoloLeveling_Pixel6` emulator (plain `installDebug`, no schema change): Dashboard
+Home renders the gradient tab divider, gradient-bordered "Next Up"/"Coming Up Today" cards, a
+visibly glowing Rank badge, and gradient-filled stat bars (Vitality's partial fill shows the
+gradient + glow tip clearly against the other stats' empty tinted tracks); confirmed the deeper
+background/rounder card corners and blue-tinted outlined-button borders show up on other screens
+too (Gym, Routine) even though those screens weren't individually touched, confirming the
+theme-level changes cascade as intended. Not yet installed to the user's real Pixel 7 this pass -
+it was disconnected at the time of testing. A final `adb logcat *:E` sweep showed no new app
+crashes (same benign `FrameTracker` noise seen throughout this session).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
