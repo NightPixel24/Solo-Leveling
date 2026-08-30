@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,7 +38,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -111,9 +111,13 @@ fun FoodScreen() {
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("Food") })
-        },
+        // Nested inside Life's own Scaffold+TabRow (not at the real screen edge), and the "Food"
+        // tab label above already names this screen - so no topBar here at all. A default Scaffold
+        // with no topBar still reserves a full status-bar-height gap in its innerPadding (meant
+        // for screens that ARE at the real top), which stacked a third blank gap above this
+        // content on top of Life's own (user feedback, 2026-08-30: "a big space above the food
+        // title") - zeroed out since this Scaffold only exists here for the FAB slot.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             // One entry point (was a camera FAB plus a separate pencil "log without a photo"
             // button) opening the same dialog either way - the photo is now an optional step

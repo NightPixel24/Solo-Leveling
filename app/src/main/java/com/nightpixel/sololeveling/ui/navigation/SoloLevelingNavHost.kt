@@ -1,5 +1,6 @@
 package com.nightpixel.sololeveling.ui.navigation
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -24,6 +25,13 @@ import com.nightpixel.sololeveling.ui.screens.TasksScreen
 @Composable
 fun SoloLevelingApp(navController: NavHostController = rememberNavController()) {
     Scaffold(
+        // Every destination below already handles its own top status-bar inset via its own
+        // Scaffold+TopAppBar - without this, this outer Scaffold's innerPadding ALSO reserves a
+        // full status-bar height (Scaffold's default when there's no topBar of its own), stacking
+        // a second blank gap above every single screen's title (user feedback, 2026-08-30: "a lot
+        // of empty space above the screen headers"). NavigationBar (bottomBar) likewise already
+        // consumes the bottom nav-bar inset itself, so zeroing this entirely is safe on both edges.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = { SoloLevelingBottomNavBar(navController) }
     ) { innerPadding ->
         NavHost(

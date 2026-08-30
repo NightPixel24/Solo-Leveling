@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,7 +42,7 @@ import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.Scale
+import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -654,17 +655,44 @@ private fun DashboardHealth(
         item { SectionHeader("Log a Reading") }
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { addDialogType = BodyStatType.WEIGHT }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.Scale, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(" Weight", style = MaterialTheme.typography.labelLarge)
+                // contentPadding tightened from ButtonDefaults' default 24.dp horizontal - three
+                // equal-weight buttons on one row leaves little room, and "Weight" (the longest
+                // label) was wrapping to 2 lines at the default padding once the icon-to-text gap
+                // below switched from a cramped leading-space hack to a real Spacer.
+                val readingButtonPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                OutlinedButton(
+                    onClick = { addDialogType = BodyStatType.WEIGHT },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = readingButtonPadding
+                ) {
+                    // Icon(Icons.Filled.Scale, ...) previously here - that glyph's own artwork
+                    // leaves dead space on its right edge, which swallowed the leading-space
+                    // hack below and read as touching the text (user feedback, 2026-08-30: "weight
+                    // is still off aligned" - a first icon swap alone didn't fix it). Straighten
+                    // (a ruler) is symmetric within its bounding box like Bloodtype/Favorite are,
+                    // and every button now uses an explicit Spacer instead of a leading space
+                    // character so the icon-to-text gap no longer depends on a glyph's own padding.
+                    Icon(Icons.Filled.Straighten, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Weight", style = MaterialTheme.typography.labelLarge, maxLines = 1)
                 }
-                OutlinedButton(onClick = { addDialogType = BodyStatType.BLOOD_SUGAR }, modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = { addDialogType = BodyStatType.BLOOD_SUGAR },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = readingButtonPadding
+                ) {
                     Icon(Icons.Filled.Bloodtype, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(" Sugar", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Sugar", style = MaterialTheme.typography.labelLarge, maxLines = 1)
                 }
-                OutlinedButton(onClick = { addDialogType = BodyStatType.BLOOD_PRESSURE }, modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = { addDialogType = BodyStatType.BLOOD_PRESSURE },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = readingButtonPadding
+                ) {
                     Icon(Icons.Filled.Favorite, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(" BP", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.width(6.dp))
+                    Text("BP", style = MaterialTheme.typography.labelLarge, maxLines = 1)
                 }
             }
         }

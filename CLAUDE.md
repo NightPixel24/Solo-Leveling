@@ -863,6 +863,48 @@ change. Bumped to v1.5.1 (versionCode 10). Verified on the `SoloLeveling_Pixel6`
 now shows immediately below the This Week/This Month cards with the empty-state message even with
 zero claims; a final `adb logcat *:E` sweep showed no crashes.
 
+**Ninth feedback pass (2026-08-30, v1.5.1 -> v1.5.2)**: two layout bugs, no schema change.
+- **Real bug: doubled/tripled top padding on every screen** ("theres a lot of empty space above
+  the screen headers... the life section... and another space above the food title"). Root cause:
+  the outer `SoloLevelingApp` `Scaffold` (`SoloLevelingNavHost.kt`, bottomBar-only, no topBar of
+  its own) still reserves a full status-bar-height top inset in its `innerPadding` by Material3
+  default, applied to the whole `NavHost`; every destination composed inside it *also* has its own
+  `Scaffold`+`TopAppBar`, which *also* reserves that same status-bar inset by default - stacking a
+  second blank gap above every single top-level screen's title (Dashboard, Tasks, Routine, Gym,
+  Life, Goals, Punishments, Calendar, Rewards, Settings - all 10 of them, not just Life, though
+  Life happened to be the example given). Fixed by zeroing the outer Scaffold's
+  `contentWindowInsets` entirely - safe since both the bottomBar (`NavigationBar`) and every
+  screen's own `TopAppBar` already consume their own edge's system inset independently.
+  `FoodScreen` compounded this a third time - it's nested *inside* `LifeScreen`'s own Scaffold
+  (for the Food tab), yet still carried its own third `Scaffold` whose default insets reserved yet
+  another status-bar-height gap it wasn't actually adjacent to. Fixed by dropping `FoodScreen`'s
+  `TopAppBar` entirely (its "Food" title was redundant with Life's own tab label anyway - matches
+  how the Water and Mood tabs already have no such title) and zeroing that Scaffold's insets too,
+  keeping the Scaffold only for its FAB slot.
+- **Real bug: Weight quick-add icon still misaligned after the sixth pass's icon swap**
+  (`Icons.Filled.MonitorWeight` -> `Icons.Filled.Scale`, sixth pass) - the *icon swap* wasn't the
+  actual fix needed. Screenshotted the real device to root-cause it properly this time: the Scale
+  glyph's own vector artwork carries dead space on its right edge, which swallowed the
+  leading-space-character hack (`Text(" Weight", ...)`) used for the icon-to-text gap, reading as
+  the icon touching the text with zero gap while Sugar/BP (whose icons don't have that dead space)
+  showed a normal gap from the exact same code shape. Fixed properly this time: swapped to
+  `Icons.Filled.Straighten` (a ruler, verified present via the same `unzip -l` jar-inspection
+  technique the sixth pass used) *and* replaced every button's leading-space hack with an explicit
+  `Spacer(Modifier.width(6.dp))`, so the gap no longer depends on any icon's own internal padding.
+  That alone then overflowed "Weight" (the longest of the three labels) onto 2 lines at
+  `OutlinedButton`'s default 24.dp horizontal content padding, caught immediately via the same
+  on-device screenshot rather than assumed fixed - tightened to a shared 10.dp horizontal
+  `contentPadding` across all three buttons to fit, verified single-line and evenly gapped after.
+Verified on the user's real Pixel 7 (in-place `installDebug`, no schema change; also installed to
+the `SoloLeveling_Pixel6` emulator for parity): screenshotted Dashboard Home, Health, and Life/Food
+before and after each fix - confirmed the gap above "Dashboard"/"Life" collapsed from a doubled
+status-bar-height gap to a single normal `TopAppBar` height (more content, e.g. "Today's Quests",
+now visible above the fold without scrolling), confirmed Food's "VIT" chip now sits directly under
+Life's tab row with zero extra gap and no redundant "Food" title; confirmed the Weight/Sugar/BP
+quick-add buttons render with matching icon-to-text gaps and all three labels on one line. A final
+`adb logcat *:E` sweep showed no app crashes (the one `FATAL SIGBUS` entry present was a 2-day-old
+crash in an unrelated system app, `a.pa.monitormix`, not Solo Leveling).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
