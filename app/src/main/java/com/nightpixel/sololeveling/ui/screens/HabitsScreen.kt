@@ -397,7 +397,9 @@ private fun weeklyStreak(doneDates: Set<LocalDate>, target: Int, today: LocalDat
     return streak
 }
 
-private fun formatMinutes(minutes: Int): String {
+// Not private - reused by RoutineScreen.kt's AddRoutineItemDialog for its own optional
+// reminder time (same minutes-since-midnight shape as Habit.reminderTime).
+fun formatMinutes(minutes: Int): String {
     val time = LocalTime.of(minutes / 60, minutes % 60)
     return time.format(DateTimeFormatter.ofPattern("h:mm a"))
 }

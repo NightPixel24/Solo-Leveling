@@ -48,7 +48,8 @@ class BackupManager(private val database: AppDatabase) {
             rewardInventory = database.rewardDao().getAllInventoryOnce(),
             playerProfile = database.playerProfileDao().getOnce(),
             routineItems = database.routineDao().getAllOnce(),
-            bodyStatEntries = database.healthDao().getAllOnce()
+            bodyStatEntries = database.healthDao().getAllOnce(),
+            scheduledWorkouts = database.scheduledWorkoutDao().getAllOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->

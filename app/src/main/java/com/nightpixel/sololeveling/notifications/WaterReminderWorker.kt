@@ -7,6 +7,7 @@ import com.nightpixel.sololeveling.SoloLevelingApplication
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 
 /** Spec Section 7 - "water reminders spaced through the day toward your daily goal." Unlike the
  * habit/mood/gym/review reminders, there's no single target time to hit - a plain periodic sweep
@@ -25,13 +26,23 @@ class WaterReminderWorker(context: Context, params: WorkerParameters) : Coroutin
         val bottlesLogged = log?.bottlesLogged ?: 0
         if (bottlesLogged >= goalBottles) return Result.success()
 
+        // Behind-pace check rather than a flat "not done yet" - that fired the very first sweep
+        // right at 9am with the whole goal still outstanding, reading as an unreasonably early
+        // nag before there'd been any real chance to drink anything (user feedback, 2026-08-30:
+        // "the notifications are early for when I should drink more water"). A cup of slack keeps
+        // this from nagging over normal small lags in logging.
+        val minutesIntoWindow = ChronoUnit.MINUTES.between(ACTIVE_START, now).coerceAtLeast(0)
+        val windowMinutes = ChronoUnit.MINUTES.between(ACTIVE_START, ACTIVE_END)
+        val expectedByNow = goalBottles * minutesIntoWindow / windowMinutes.toDouble()
+        if (bottlesLogged >= expectedByNow - 1) return Result.success()
+
         val remaining = goalBottles - bottlesLogged
         Notifier.show(
             applicationContext,
             NotificationChannels.WATER,
             WATER_NOTIF_ID,
             "Stay hydrated",
-            "$remaining bottle${if (remaining == 1) "" else "s"} left to hit today's water goal"
+            "$remaining cup${if (remaining == 1) "" else "s"} left to hit today's water goal"
         )
         return Result.success()
     }

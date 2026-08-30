@@ -905,6 +905,90 @@ quick-add buttons render with matching icon-to-text gaps and all three labels on
 `adb logcat *:E` sweep showed no app crashes (the one `FATAL SIGBUS` entry present was a 2-day-old
 crash in an unrelated system app, `a.pa.monitormix`, not Solo Leveling).
 
+**Tenth feedback pass (2026-08-30, v1.5.2 -> v1.6.0)**: a bigger Gym rework plus two small fixes,
+bundled under one version bump per this session's "one evening, one version bump" convention.
+Schema v18->v20 across two migrations (kept separate since they're conceptually unrelated, unlike
+same-migration bundling elsewhere - each is a clean single-purpose step).
+- **Gym: Routine renamed to Workouts, Routine repurposed as a real weekly schedule** (user
+  feedback: "change the routine tab name to be called workouts... add a new tab to the gym screen
+  calling that routine... this routine is going to be basically the gym schedule"). `GymTab` is
+  now Workouts/Routine/Calendar. The `SplitDay` entity/table (`split_days`) is unchanged at the
+  data layer - user-facing text was already correct, just needed the tab label, dialog titles
+  ("New Split Day" -> "New Workout"), and empty-state copy updated; no migration needed for the
+  rename itself since the underlying table/column names never appear in the UI.
+  New `ScheduledWorkout` table (`MIGRATION_18_19`) maps `dayOfWeek` (1-7, PK) -> `splitDayId`,
+  FK+cascade to `SplitDay` - a plain recurring weekly *plan*, deliberately with no date of its own
+  and never read by the Calendar tab, so a missed planned day can't corrupt anything (the same
+  reasoning that killed the original fixed-weekday `Exercise.dayOfWeek` in the third feedback
+  pass). The new Routine tab shows a "Today" checklist (that weekday's scheduled workout's
+  exercises, checkable exactly like the Workouts tab's own checkboxes - same `logTarget`/
+  `LogSessionDialog` plumbing, just reused for a filtered exercise list) above a plain 7-row
+  Monday-Sunday plan list.
+  **Follow-up requests mid-build, folded into the same feature**: weekday rows are delete-icon-
+  free at rest - long-press reveals a small clear icon (`combinedClickable`, mirroring
+  `DashboardScreen`'s `BodyStatRow` pattern from the sixth pass) rather than a permanent icon; a
+  top-bar "clear schedule" icon (only shown once something's scheduled) opens a warned confirm
+  dialog before wiping every day at once; the "Today" checklist's reset-per-day behavior needed no
+  extra code at all - it already reads the same doneToday-from-GymSession check the Workouts tab
+  uses, which naturally reads unchecked again once the calendar date rolls over.
+  Calendar's `WorkoutMonthCalendar` already accepted an unused `onDayClick` callback from the third
+  pass - wiring it up now opens a new `DayDetailDialog` (user feedback: "I can also click into the
+  day, and I can manually add a different workout if I want to") showing that date's actually-
+  logged sessions (with delete) and a workout picker to log any exercise from any workout against
+  that specific date - reuses `logTarget`'s existing date parameter (already generic, just always
+  called with `today` before) rather than adding a second logging path.
+- **Water: shows the per-cup ml amount and the goal in liters** (user feedback: "telling me
+  exactly how much each cup is in terms of milliliters, and then the end goal... in terms of
+  liters") - `WaterScreen`'s summary line changed from "X / Y cups (Z ml goal)" to "X / Y cups
+  (250 ml each) - Z.ZZ L goal".
+- **Real bug: water reminder notifications fired unreasonably early** (user feedback: "the
+  notifications are early for when I should drink more water") - `WaterReminderWorker`'s very
+  first sweep of the day (9am, the active window's start) always nagged with the entire goal still
+  outstanding, since it only checked "is today's goal met yet," not what time it actually was.
+  Changed to a behind-pace check (expected cups by now, given how far into the 9am-9pm window) with
+  a one-cup slack, so it stays quiet until actually behind rather than nagging the moment the
+  window opens. Also fixed a stale wording bug in the same function - the notification text still
+  said "bottle(s)" from before the fourth feedback pass renamed everything to "cups."
+- **New: time-specific Routine schedule reminders** (user feedback: "if there are any time
+  specific things in my schedule, I should also be notified for that... at nine PM it might say
+  take my tablets"). `RoutineItem` gains an optional `reminderTime` (minutes since midnight, same
+  shape as `Habit.reminderTime`) via `MIGRATION_19_20`; `AddRoutineItemDialog` gained the same
+  optional `TimePicker` capture flow `HabitsScreen`'s own reminder already used (un-privated
+  `formatMinutes` to share the exact display formatting instead of a second copy). New
+  `RoutineReminderWorker` mirrors `HabitReminderWorker`'s periodic-sweep shape (every 15 minutes,
+  fire for anything whose time falls in the window just passed) rather than a self-rescheduling
+  exact-time job per item, for the same reason: items get added/edited/deleted freely with no
+  cancel/reschedule wiring needed. New `routine_reminders` notification channel ("Schedule
+  reminders") so it can be muted independently of habit reminders.
+  **Real bug caught via a real device notification dump, not just logs**: the new worker's
+  notification-id base (`50_000L + item.id`) collided with `ReviewReminderWorker`'s existing
+  `WEEKLY_NOTIF_ID`/`MONTHLY_NOTIF_ID` (`50_000`/`50_001`) - every other worker already claims its
+  own 10,000-wide block (Habit 10k, Water 20k, Mood 30k, Gym 40k, Review 50k) and this one was
+  never checked against that list. Fixed by moving to `60_000`, the next free block.
+Verified on both the `SoloLeveling_Pixel6` emulator and the user's real Pixel 7 (phone reconnected
+mid-session) - all 20 `connectedDebugAndroidTest` cases passed on both devices simultaneously
+(including the new `migrate18To19`, seeding a real split day and asserting a scheduled-workout row
+FK-references it correctly, and `migrate19To20`, seeding a routine item and asserting its new
+nullable `reminderTime` column round-trips). Manual pass on the emulator: renamed tabs confirmed
+(Workouts/Routine/Calendar); created a "Back Day" workout with a Deadlift exercise; scheduled it to
+Sunday (today) via the Routine tab's picker and confirmed the "Today" checklist section appeared
+showing Deadlift as a checkable item; checked it off and confirmed the exact same `LogSessionDialog`
+opened and logged correctly; long-pressed Sunday's row and confirmed a delete icon appeared (sibling
+rows untouched), tapped it and confirmed the day cleared back to "Rest," and confirmed the top-bar
+clear-all icon appeared/disappeared correctly as scheduled-workout state changed; opened the
+Calendar tab and confirmed today's cell colored correctly, tapped it and confirmed `DayDetailDialog`
+showed the logged Deadlift with a delete icon and the schedule-defaulted workout pre-selected for
+further logging. Added a Routine schedule item ("Take tablets," Night, with a specific time) and
+confirmed the time renders correctly on the row; force-triggered `RoutineReminderWorker` via
+`adb shell cmd jobscheduler run -f` (after editing the row's `reminderTime` directly via `sqlite3`
+to match the current time) and confirmed it completed successfully via `adb logcat`'s `WM-
+WorkerWrapper: Worker result SUCCESS` lines; a `dumpsys notification` dump is what caught the
+notification-id collision bug above, fixed and reconfirmed via a clean rebuild. A final
+`adb logcat *:E` sweep on both devices showed no app crashes (only the same benign `FrameTracker`
+IME-animation timeout seen throughout this session, a 2-day-old unrelated `monitormix` crash, and
+routine `PackageManager`/`HCPackageInfoUtils` noise from the instrumented test APK's own
+install/uninstall cycle, not from the app itself).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

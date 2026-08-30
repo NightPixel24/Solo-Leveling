@@ -231,6 +231,47 @@ class MigrationTest {
         }
     }
 
+    /** Seeds a real split day before migrating and assigns it to a weekday, so the new
+     * `scheduled_workouts` table (Gym screen's Routine tab, user feedback, 2026-08-30: "add a new
+     * tab... calling that routine... basically the gym schedule") is exercised against a real
+     * FK target, not just an empty table. */
+    @Test
+    fun migrate18To19() {
+        val db = helper.createDatabase(dbName, 18)
+        db.execSQL(
+            "INSERT INTO split_days (id, name, colorHex, orderIndex, createdAt) " +
+                "VALUES (1, 'Back Day', '#E5484D', 0, 0)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 19, true, AppDatabase.MIGRATION_18_19)
+
+        migrated.execSQL("INSERT INTO scheduled_workouts (dayOfWeek, splitDayId) VALUES (1, 1)")
+        migrated.query("SELECT splitDayId FROM scheduled_workouts WHERE dayOfWeek = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1L, cursor.getLong(0))
+        }
+    }
+
+    /** Seeds a real routine item before migrating, so the new nullable `reminderTime` column
+     * (user feedback, 2026-08-30: time-specific schedule notifications) is exercised against a
+     * real pre-existing row, not just an empty table. */
+    @Test
+    fun migrate19To20() {
+        val db = helper.createDatabase(dbName, 19)
+        db.execSQL(
+            "INSERT INTO routine_items (id, dayPart, title, habitId, createdAt) " +
+                "VALUES (1, 'NIGHT', 'Take tablets', NULL, 0)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 20, true, AppDatabase.MIGRATION_19_20)
+
+        migrated.execSQL("UPDATE routine_items SET reminderTime = 1260 WHERE id = 1")
+        migrated.query("SELECT reminderTime FROM routine_items WHERE id = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1260, cursor.getInt(0))
+        }
+    }
+
     /** The full chain a real device upgrading from the very first release runs through, plus a
      * sanity read through Room's own generated DAOs (not just raw-SQL schema validation) to
      * confirm the fully-migrated database is actually usable - the seeded rows MIGRATION_2_3,
@@ -242,13 +283,14 @@ class MigrationTest {
     fun migrateAllStepsAndOpenWithRoom() {
         helper.createDatabase(dbName, 1).close()
         helper.runMigrationsAndValidate(
-            dbName, 18, true,
+            dbName, 20, true,
             AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
             AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
             AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
-            AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18
+            AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18, AppDatabase.MIGRATION_18_19,
+            AppDatabase.MIGRATION_19_20
         )
 
         val db = Room.databaseBuilder(
@@ -262,7 +304,8 @@ class MigrationTest {
                 AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
                 AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
-                AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18
+                AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18, AppDatabase.MIGRATION_18_19,
+                AppDatabase.MIGRATION_19_20
             )
             .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .build()

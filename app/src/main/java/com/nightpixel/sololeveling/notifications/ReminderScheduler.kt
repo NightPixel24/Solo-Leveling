@@ -26,6 +26,11 @@ object ReminderScheduler {
             ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequest.Builder(WaterReminderWorker::class.java, 2, TimeUnit.HOURS).build()
         )
+        workManager.enqueueUniquePeriodicWork(
+            RoutineReminderWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequest.Builder(RoutineReminderWorker::class.java, 15, TimeUnit.MINUTES).build()
+        )
 
         scheduleDailyAt(context, MoodReminderWorker.WORK_NAME, MoodReminderWorker::class.java, ReminderTimes.MOOD_CHECKIN)
         scheduleDailyAt(context, GymReminderWorker.WORK_NAME, GymReminderWorker::class.java, ReminderTimes.GYM)

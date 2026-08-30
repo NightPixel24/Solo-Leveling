@@ -19,6 +19,7 @@ import com.nightpixel.sololeveling.data.dao.PlayerProfileDao
 import com.nightpixel.sololeveling.data.dao.PunishmentDao
 import com.nightpixel.sololeveling.data.dao.RewardDao
 import com.nightpixel.sololeveling.data.dao.RoutineDao
+import com.nightpixel.sololeveling.data.dao.ScheduledWorkoutDao
 import com.nightpixel.sololeveling.data.dao.SplitDayDao
 import com.nightpixel.sololeveling.data.dao.StatDao
 import com.nightpixel.sololeveling.data.dao.TaskDao
@@ -40,6 +41,7 @@ import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.RewardInventoryItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
 import com.nightpixel.sololeveling.data.entity.RoutineItem
+import com.nightpixel.sololeveling.data.entity.ScheduledWorkout
 import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.Stat
 import com.nightpixel.sololeveling.data.entity.StatTag
@@ -62,9 +64,10 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         Goal::class, Stat::class, XpLog::class,
         PunishmentPoolItem::class, PunishmentAssignment::class,
         RewardPoolItem::class, RewardInventoryItem::class,
-        PlayerProfile::class, SplitDay::class, RoutineItem::class, BodyStatEntry::class
+        PlayerProfile::class, SplitDay::class, RoutineItem::class, BodyStatEntry::class,
+        ScheduledWorkout::class
     ],
-    version = 18,
+    version = 20,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -86,9 +89,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun splitDayDao(): SplitDayDao
     abstract fun routineDao(): RoutineDao
     abstract fun healthDao(): HealthDao
+    abstract fun scheduledWorkoutDao(): ScheduledWorkoutDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 18
+        const val CURRENT_SCHEMA_VERSION = 20
         private const val DB_NAME = "solo_leveling.db"
 
         /** Fresh installs get a single protected "Daily" list (user feedback, 2026-08-26: "make
@@ -660,6 +664,37 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the Gym screen's new Routine tab (user feedback, 2026-08-30: "add a new tab...
+         * calling that routine... it's going to be basically the gym schedule") - a plain weekly
+         * plan mapping each weekday to a [SplitDay] ("Workout" in the now-renamed UI), fully
+         * decoupled from the Calendar tab's actual logged history (see [ScheduledWorkout]'s doc
+         * comment for why). No data migration needed beyond creating the empty table - there's no
+         * prior "schedule" concept for existing rows to map from. */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS scheduled_workouts (
+                        dayOfWeek INTEGER NOT NULL PRIMARY KEY,
+                        splitDayId INTEGER NOT NULL,
+                        FOREIGN KEY(splitDayId) REFERENCES split_days(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_scheduled_workouts_splitDayId ON scheduled_workouts(splitDayId)")
+            }
+        }
+
+        /** Adds an optional specific reminder time to a Routine schedule item (user feedback,
+         * 2026-08-30: "if there are any time specific things in my schedule, I should also be
+         * notified for that... at nine PM it might say take my tablets") - see [RoutineItem]'s doc
+         * comment. A plain nullable column add, no data to migrate. */
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE routine_items ADD COLUMN reminderTime INTEGER")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -674,7 +709,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                         MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
-                        MIGRATION_16_17, MIGRATION_17_18
+                        MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

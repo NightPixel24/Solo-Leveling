@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -24,6 +25,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -31,7 +33,9 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.dao.FoodDao
 import com.nightpixel.sololeveling.data.dao.HabitDao
@@ -208,16 +214,31 @@ private fun RoutineItemRow(
                 Checkbox(checked = doneToday, onCheckedChange = { onToggleHabit(habitWithLogs) })
                 Column(Modifier.weight(1f)) {
                     Text(habitWithLogs.habit.title, style = MaterialTheme.typography.titleMedium)
-                    StatChip(habitWithLogs.habit.statTag)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        StatChip(habitWithLogs.habit.statTag)
+                        item.reminderTime?.let { ReminderTimeLabel(it) }
+                    }
                 }
             } else {
-                Text(item.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    Text(item.title, style = MaterialTheme.typography.titleMedium)
+                    item.reminderTime?.let { ReminderTimeLabel(it) }
+                }
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Filled.Delete, contentDescription = "Remove from schedule")
             }
         }
     }
+}
+
+@Composable
+private fun ReminderTimeLabel(reminderTime: Int) {
+    Text(
+        formatMinutes(reminderTime),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary
+    )
 }
 
 @Composable
@@ -238,6 +259,8 @@ private fun AddRoutineItemDialog(
     var mode by remember { mutableStateOf(RoutineItemMode.CUSTOM) }
     var title by remember { mutableStateOf("") }
     var selectedHabitId by remember { mutableStateOf<Long?>(null) }
+    var reminderTime by remember { mutableStateOf<Int?>(null) }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -306,6 +329,12 @@ private fun AddRoutineItemDialog(
                         }
                     }
                 }
+                // Optional, unlike the day-part slot itself - most items are just "sometime in
+                // the morning," but a time-specific one (user's own example: "at nine PM, take my
+                // tablets") gets a real notification at that exact time via RoutineReminderWorker.
+                OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(reminderTime?.let { formatMinutes(it) } ?: "Set a specific time (optional)")
+                }
             }
         },
         confirmButton = {
@@ -313,9 +342,9 @@ private fun AddRoutineItemDialog(
             TextButton(
                 onClick = {
                     val item = if (mode == RoutineItemMode.CUSTOM) {
-                        RoutineItem(dayPart = dayPart, title = title.trim())
+                        RoutineItem(dayPart = dayPart, title = title.trim(), reminderTime = reminderTime)
                     } else {
-                        RoutineItem(dayPart = dayPart, habitId = selectedHabitId)
+                        RoutineItem(dayPart = dayPart, habitId = selectedHabitId, reminderTime = reminderTime)
                     }
                     onConfirm(item)
                 },
@@ -326,4 +355,34 @@ private fun AddRoutineItemDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+
+    if (showTimePicker) {
+        val initial = reminderTime ?: (8 * 60)
+        val timePickerState = rememberTimePickerState(
+            initialHour = initial / 60,
+            initialMinute = initial % 60,
+            is24Hour = false
+        )
+        Dialog(onDismissRequest = { showTimePicker = false }, properties = DialogProperties()) {
+            Surface(shape = MaterialTheme.shapes.large) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TimePicker(state = timePickerState)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { reminderTime = null; showTimePicker = false }) {
+                            Text("Clear")
+                        }
+                        TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+                        Button(onClick = {
+                            reminderTime = timePickerState.hour * 60 + timePickerState.minute
+                            showTimePicker = false
+                        }) { Text("OK") }
+                    }
+                }
+            }
+        }
+    }
 }

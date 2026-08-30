@@ -13,6 +13,7 @@ object NotificationChannels {
     const val MOOD = "mood_reminders"
     const val GYM = "gym_reminders"
     const val REVIEW = "review_reminders"
+    const val ROUTINE = "routine_reminders"
 
     fun ensureCreated(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -22,7 +23,8 @@ object NotificationChannels {
             WATER to "Water reminders",
             MOOD to "Mood check-in",
             GYM to "Gym day reminders",
-            REVIEW to "Weekly/monthly review"
+            REVIEW to "Weekly/monthly review",
+            ROUTINE to "Schedule reminders"
         ).forEach { (id, name) ->
             manager.createNotificationChannel(NotificationChannel(id, name, NotificationManager.IMPORTANCE_DEFAULT))
         }

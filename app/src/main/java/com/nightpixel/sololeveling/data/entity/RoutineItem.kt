@@ -23,7 +23,13 @@ enum class DayPart(val label: String) {
  * same "derive, don't store a second copy" reasoning as this codebase's other screens). No
  * completion state of its own: a slotted habit's checkbox on the Schedule tab reads/writes the
  * exact same [HabitLog] the Habits tab already tracks, and a free-text item is just a plan, not a
- * second thing to check off. */
+ * second thing to check off. `reminderTime` (minutes since midnight, same shape as
+ * [Habit.reminderTime]) is optional - when set, [com.nightpixel.sololeveling.notifications.
+ * RoutineReminderWorker] fires a notification at that specific time (user feedback, 2026-08-30:
+ * "if there are any time specific things in my schedule, I should also be notified... at nine PM
+ * it might say take my tablets"), independent of any per-habit reminder a slotted habit might
+ * separately have - the two are different concepts (a habit's own "time to do this" nudge vs. this
+ * item's place in the day plan) and can both legitimately fire. */
 @Serializable
 @Entity(
     tableName = "routine_items",
@@ -42,5 +48,6 @@ data class RoutineItem(
     val dayPart: DayPart,
     val title: String = "",
     val habitId: Long? = null,
+    val reminderTime: Int? = null,
     val createdAt: Long = System.currentTimeMillis()
 )

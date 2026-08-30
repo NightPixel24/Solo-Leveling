@@ -115,8 +115,11 @@ fun WaterScreen() {
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // User feedback, 2026-08-30: spell out the per-cup ml amount instead of only the
+            // goal-setting dialog knowing it, and show the goal itself in liters (not ml) - a
+            // round-numbered "2.0 L" reads more like a real hydration target than "2000 ml".
             Text(
-                "$bottlesLogged / $goalBottles cups (${goalBottles * 250} ml goal)",
+                "$bottlesLogged / $goalBottles cups (250 ml each) - ${litersText(goalBottles)} L goal",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -153,6 +156,17 @@ fun WaterScreen() {
                 showGoalDialog = false
             }
         )
+    }
+}
+
+/** "2.0" for 8 cups, "1.75" for 7 - always at least one decimal place so a round number still
+ * reads as a liquid volume ("2.0 L"), not an integer count. */
+private fun litersText(cups: Int): String {
+    val liters = cups * 250 / 1000.0
+    return if (liters == liters.toLong().toDouble()) {
+        "%.1f".format(liters)
+    } else {
+        liters.toString().trimEnd('0').trimEnd('.')
     }
 }
 
