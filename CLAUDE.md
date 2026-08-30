@@ -1116,6 +1116,24 @@ theme-level changes cascade as intended. Not yet installed to the user's real Pi
 it was disconnected at the time of testing. A final `adb logcat *:E` sweep showed no new app
 crashes (same benign `FrameTracker` noise seen throughout this session).
 
+**Fourteenth feedback pass (2026-08-30, v1.8.0 -> v1.8.1)**: same-day follow-up to the thirteenth
+pass's visual refresh - user feedback: "looks good but i dont like the E rank logo theres a
+hexagon in the logo that looks off." Root cause: `RankBadge`'s glow used a platform
+`Modifier.shadow(... ambientColor/spotColor = SystemCyan)` behind a `CircleShape` Surface - on the
+user's real Pixel 7, that elevation shadow rendered as a stray dark polygon (a low-poly hull
+approximation of the circle's outline) bleeding out from one edge of the badge instead of a true
+soft circular glow, visible in an on-device screenshot from the prior pass's own verification but
+not flagged until now. Fixed by dropping the platform shadow entirely in favor of a hand-drawn
+glow - a `Canvas` behind the badge Surface drawing a `Brush.radialGradient` circle (`SystemCyan`
+fading to transparent) - which is a true circle by construction with no outline/hull approximation
+involved, so it can't reproduce this artifact on any device. No schema change, no other screens
+touched (Boss/Habits/Gym/etc. weren't using the shadow-glow pattern this bug came from).
+Verified on the `SoloLeveling_Pixel6` emulator (plain `installDebug`, no schema change): screenshot
+of the Dashboard Home tab's Rank badge confirms a clean circular cyan glow with no dark polygon
+artifact. Not yet re-verified on the user's real Pixel 7 this pass - it was disconnected at the
+time; the original bug report came from a screenshot taken in the prior pass, not live viewing, so
+a live-device recheck is still worth doing next time the phone's connected.
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
