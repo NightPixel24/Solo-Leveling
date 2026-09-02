@@ -71,7 +71,7 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         PlayerProfile::class, SplitDay::class, RoutineItem::class, BodyStatEntry::class,
         ScheduledWorkout::class, RestDayLog::class, RestDayNote::class
     ],
-    version = 25,
+    version = 26,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -98,7 +98,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun restDayNoteDao(): RestDayNoteDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 25
+        const val CURRENT_SCHEMA_VERSION = 26
         private const val DB_NAME = "solo_leveling.db"
 
         /** Fresh installs get a single protected "Daily" list (user feedback, 2026-08-26: "make
@@ -804,6 +804,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** A rest-day note gets its own daily checkbox (user feedback, 2026-09-02: "the checkbox
+         * should only be for added items, not in the header... when you add an item as per normal
+         * it should have the checkbox there"). `completedDate` mirrors `routine_items.completedDate`
+         * exactly (MIGRATION_20_21) - a plain nullable column add, every existing row reads as "not
+         * done today" either way, no backfill. */
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE rest_day_notes ADD COLUMN completedDate TEXT")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -819,7 +830,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                         MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
                         MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
-                        MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25
+                        MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
+                        MIGRATION_25_26
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

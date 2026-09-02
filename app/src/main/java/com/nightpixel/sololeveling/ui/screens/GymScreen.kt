@@ -202,7 +202,6 @@ fun GymScreen() {
                 restNotes = restNotes,
                 today = today,
                 editMode = workoutsEditMode,
-                restLoggedTodaySplitDayId = restDayLogs.find { it.date == today.toString() }?.splitDayId,
                 onEditDay = { editDayTarget = it },
                 onDeleteDay = { deleteDayTarget = it },
                 onAddExerciseToDay = { addExerciseTargetDay = it },
@@ -216,10 +215,23 @@ fun GymScreen() {
                     }
                 },
                 onDeleteExercise = { exercise -> scope.launch { gymDao.deleteExercise(exercise) } },
-                onToggleRestDay = { day, checked ->
+                // Ticking any rest-day item marks it done for today; the rest day is recorded onto
+                // the calendar (rest_day_logs) for a date iff at least one of its items is checked
+                // that date - so a toggle re-derives today's row (rest_day_logs.date is the PK, one
+                // rest per day, same as the old header checkbox wrote).
+                onToggleRestNote = { note, currentlyChecked ->
                     scope.launch {
-                        if (checked) restDayLogDao.upsert(RestDayLog(date = today.toString(), splitDayId = day.id))
-                        else restDayLogDao.deleteByDate(today.toString())
+                        val newDate = if (currentlyChecked) null else today.toString()
+                        restDayNoteDao.setCompletedDate(note.id, newDate)
+                        val siblingDoneToday = restNotes.any {
+                            it.splitDayId == note.splitDayId && it.id != note.id &&
+                                it.completedDate == today.toString()
+                        }
+                        if (newDate != null || siblingDoneToday) {
+                            restDayLogDao.upsert(RestDayLog(date = today.toString(), splitDayId = note.splitDayId))
+                        } else if (restDayLogDao.getForDate(today.toString())?.splitDayId == note.splitDayId) {
+                            restDayLogDao.deleteByDate(today.toString())
+                        }
                     }
                 }
             )
@@ -391,15 +403,14 @@ private fun WorkoutsTab(
     restNotes: List<RestDayNote>,
     today: LocalDate,
     editMode: Boolean,
-    restLoggedTodaySplitDayId: Long?,
     onEditDay: (SplitDay) -> Unit,
     onDeleteDay: (SplitDay) -> Unit,
     onAddExerciseToDay: (SplitDay) -> Unit,
     onAddRestNote: (SplitDay) -> Unit,
     onDeleteRestNote: (RestDayNote) -> Unit,
+    onToggleRestNote: (RestDayNote, currentlyChecked: Boolean) -> Unit,
     onToggleExercise: (Exercise, LocalDate, done: Boolean) -> Unit,
-    onDeleteExercise: (Exercise) -> Unit,
-    onToggleRestDay: (SplitDay, checked: Boolean) -> Unit
+    onDeleteExercise: (Exercise) -> Unit
 ) {
     if (splitDays.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -424,9 +435,10 @@ private fun WorkoutsTab(
         splitDays.forEach { day ->
             val expanded = expandedByDay[day.id] ?: false
             // A rest day (user feedback, 2026-09-02) is a SplitDay with no exercises - it gets the
-            // same collapsible header as a workout, but ticking it records today into rest_day_logs
-            // (colors today on the Calendar with this rest day's color) and its "+" adds a plain
-            // free-text note rather than opening the exercise dialog.
+            // same collapsible header as a workout (no checkbox of its own), and each free-text
+            // item under it has its own daily checkbox instead. Its "+" adds a plain note rather
+            // than opening the exercise dialog; ticking any item records the rest day onto the
+            // Calendar for that date (see the onToggleRestNote wiring in GymScreen).
             if (day.isRest) {
                 val notes = restNotes.filter { it.splitDayId == day.id }
                 item(key = "rest-header-${day.id}") {
@@ -434,9 +446,7 @@ private fun WorkoutsTab(
                         day = day,
                         expanded = expanded,
                         editMode = editMode,
-                        checkedToday = restLoggedTodaySplitDayId == day.id,
                         onToggleExpand = { expandedByDay[day.id] = !expanded },
-                        onToggleChecked = { checked -> onToggleRestDay(day, checked) },
                         onAddNote = { onAddRestNote(day) },
                         onEdit = { onEditDay(day) },
                         onDelete = { onDeleteDay(day) }
@@ -456,7 +466,9 @@ private fun WorkoutsTab(
                         items(notes, key = { "rest-note-${it.id}" }) { note ->
                             RestNoteRow(
                                 note = note,
+                                checkedToday = note.completedDate == today.toString(),
                                 editMode = editMode,
+                                onToggle = { onToggleRestNote(note, note.completedDate == today.toString()) },
                                 onDelete = { onDeleteRestNote(note) }
                             )
                         }
@@ -554,18 +566,17 @@ private fun SplitDayHeader(
 }
 
 /** A rest day's header on the Workouts tab (user feedback, 2026-09-02: a rest day "should still
- * have a drop down header similar to the other workouts design"). Mirrors [SplitDayHeader]'s
- * chevron/dot/name/count/"+"/edit/delete layout, adding a leading checkbox that logs/unlogs today
- * into `rest_day_logs` and a "REST" tag; the "+" adds a free-text note (see [RestNoteDialog])
+ * have a drop down header similar to the other workouts design"; then "the checkbox should only be
+ * for added items, not in the header"). Same chevron/dot/name/count/"+"/edit/delete layout as
+ * [SplitDayHeader], just a "REST" tag and no checkbox of its own - the per-item checkboxes on
+ * [RestNoteRow] carry the daily checkoff; the "+" adds a free-text note (see [RestNoteDialog])
  * rather than opening the exercise dialog. */
 @Composable
 private fun RestDayHeader(
     day: SplitDay,
     expanded: Boolean,
     editMode: Boolean,
-    checkedToday: Boolean,
     onToggleExpand: () -> Unit,
-    onToggleChecked: (Boolean) -> Unit,
     onAddNote: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
@@ -578,14 +589,13 @@ private fun RestDayHeader(
         Row(
             modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
                 if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                 contentDescription = if (expanded) "Collapse ${day.name}" else "Expand ${day.name}",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Checkbox(checked = checkedToday, onCheckedChange = { onToggleChecked(!checkedToday) })
             Box(
                 modifier = Modifier.size(12.dp).background(parseHexColor(day.colorHex), CircleShape)
             )
@@ -621,20 +631,28 @@ private fun RestDayHeader(
     }
 }
 
-/** One free-text line under a rest day. Plain text plus an edit-mode-only delete - a rest note has
- * nothing to log/check (the rest day itself is ticked from its header). */
+/** One free-text line under a rest day - its own daily checkbox (user feedback, 2026-09-02: "when
+ * you add an item as per normal it should have the checkbox there"), same daily-reset semantics as
+ * an exercise row or a Routine schedule item; plus an edit-mode-only delete. */
 @Composable
 private fun RestNoteRow(
     note: RestDayNote,
+    checkedToday: Boolean,
     editMode: Boolean,
+    onToggle: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth(),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(note.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Checkbox(checked = checkedToday, onCheckedChange = { onToggle() })
+            Text(
+                note.text,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f).padding(start = 4.dp)
+            )
             if (editMode) {
                 SubtleIconButton(Icons.Outlined.Delete, "Delete note", onClick = onDelete)
             }

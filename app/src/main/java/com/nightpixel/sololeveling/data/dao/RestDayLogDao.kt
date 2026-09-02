@@ -21,6 +21,9 @@ interface RestDayLogDao {
     @Query("DELETE FROM rest_day_logs WHERE date = :date")
     suspend fun deleteByDate(date: String)
 
+    @Query("SELECT * FROM rest_day_logs WHERE date = :date")
+    suspend fun getForDate(date: String): RestDayLog?
+
     @Query("SELECT * FROM rest_day_logs")
     suspend fun getAllOnce(): List<RestDayLog>
 

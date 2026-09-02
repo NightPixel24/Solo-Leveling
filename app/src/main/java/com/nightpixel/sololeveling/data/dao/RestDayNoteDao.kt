@@ -24,6 +24,11 @@ interface RestDayNoteDao {
     @Delete
     suspend fun delete(note: RestDayNote)
 
+    /** Toggling an item's checkbox - pass null to uncheck, an ISO date string to mark it done for
+     * that day (mirrors RoutineDao.setCompletedDate). */
+    @Query("UPDATE rest_day_notes SET completedDate = :date WHERE id = :id")
+    suspend fun setCompletedDate(id: Long, date: String?)
+
     @Query("SELECT * FROM rest_day_notes")
     suspend fun getAllOnce(): List<RestDayNote>
 

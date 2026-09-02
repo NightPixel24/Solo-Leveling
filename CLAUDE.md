@@ -1373,6 +1373,36 @@ follow-up. A final `adb logcat *:E` sweep showed no app crashes (only the usual 
 was disconnected during testing; a real-device install with the v24->v25 migration is still
 outstanding.
 
+**Twenty-second feedback pass (2026-09-02, v1.13.0 -> v1.14.0)**: same-day correction to pass 21 -
+the rest-day header's checkbox was wrong ("the checkbox should only be for added items, not in the
+header... when you add an item as per normal it should have the checkbox there"). Schema v25->v26
+(`AppDatabase.MIGRATION_25_26`).
+- **`RestDayHeader` loses its checkbox** - now just chevron/dot/name/"REST" tag/"+"/edit/delete,
+  the same shape as `SplitDayHeader`. `restLoggedTodaySplitDayId`/`onToggleRestDay` are gone.
+- **Each `RestNoteRow` gets its own daily checkbox** via a new `RestDayNote.completedDate` (nullable
+  ISO date) - mirrors `RoutineItem.completedDate` / `MIGRATION_20_21` exactly, including the
+  daily-reset-by-date-comparison semantics and the `RestDayNoteDao.setCompletedDate(id, date?)`
+  toggle query. `MIGRATION_25_26` is a plain `ALTER TABLE rest_day_notes ADD COLUMN completedDate
+  TEXT`, no backfill.
+- **The Calendar record is now derived from item checks**: `GymScreen`'s `onToggleRestNote`
+  handler, after setting a note's `completedDate`, upserts `rest_day_logs` for today iff at least
+  one of that rest day's notes is checked today, else deletes today's row (guarded by a new
+  `RestDayLogDao.getForDate` so it only clears a row that belongs to this split day - one rest per
+  date, `rest_day_logs.date` PK, same as the old header checkbox wrote). `workoutCalendarForMonth`
+  and the backup are unchanged. Consequence: a rest day with zero notes can't be recorded onto the
+  calendar (nothing to tick) - acceptable, same as an empty normal workout having no exercise to
+  check; add a note ("Full rest") to tick it.
+`migrate25To26` in `MigrationTest.kt` (26 tests, all pass) seeds a real rest split day + note and
+asserts the new column is nullable and round-trips; the full-chain test extends to v26.
+Verified on the `SoloLeveling_Pixel6` emulator (real v25->v26 migration, `user_version 26`, all 26
+`connectedDebugAndroidTest` cases pass): created a "Recovery Day" rest workout, confirmed the
+header has no checkbox (chevron + dot + name + REST + "+"); added a "Gentle walk" item and
+confirmed the item row has its own checkbox; ticked it -> `rest_day_notes.completedDate` = today
+AND a `rest_day_logs` row appeared for today; unticked it -> both cleared. A final `adb logcat`
+crash sweep showed no app crashes. Not yet installed to the user's real Pixel 7 this pass (it
+disconnected mid-session; pass 21's v24->v25 install already went to it earlier today, so the
+outstanding real-device step is the v25->v26 bump).
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`
