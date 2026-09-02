@@ -123,6 +123,13 @@ fun WaterScreen() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // User feedback, 2026-09-02: show how much has actually gone down so far, in both
+            // units, not just the cup count and the goal.
+            Text(
+                "So far: ${bottlesLogged * 250} ml (${litersText(bottlesLogged)} L)",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             LinearProgressIndicator(
                 progress = { if (goalBottles > 0) (bottlesLogged.toFloat() / goalBottles).coerceIn(0f, 1f) else 0f },
                 modifier = Modifier.fillMaxWidth()

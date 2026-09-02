@@ -22,9 +22,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PostAdd
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,6 +70,7 @@ import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.data.gamification.applyVitalityMultiplier
 import com.nightpixel.sololeveling.ui.components.StatChip
+import com.nightpixel.sololeveling.ui.components.SubtleIconButton
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
@@ -97,6 +100,11 @@ fun FoodScreen() {
     var pendingPhotoFile by remember { mutableStateOf<File?>(null) }
     var entryPhotoFile by remember { mutableStateOf<File?>(null) }
     var showEntryDialog by remember { mutableStateOf(false) }
+    // Edit toggle (user feedback, 2026-09-02: "needs an edit button so when pressed the delete
+    // button shows up and also when i click on an entry i can edit it") - same pencil/check
+    // pattern Tasks/Gym/Routine already use: per-row delete + tap-to-edit only while it's on.
+    var editMode by remember { mutableStateOf(false) }
+    var editingEntry by remember { mutableStateOf<FoodLogEntry?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -137,8 +145,20 @@ fun FoodScreen() {
         }
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 StatChip(StatTag.VIT)
+                if (entries.isNotEmpty()) {
+                    IconButton(onClick = { editMode = !editMode }) {
+                        Icon(
+                            if (editMode) Icons.Filled.Check else Icons.Outlined.Edit,
+                            contentDescription = if (editMode) "Done editing" else "Edit entries"
+                        )
+                    }
+                }
             }
             if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -162,7 +182,12 @@ fun FoodScreen() {
                             )
                         }
                         items(grouped.getValue(date), key = { it.id }) { entry ->
-                            FoodRow(entry = entry, onDelete = { scope.launch { foodDao.deleteEntry(entry) } })
+                            FoodRow(
+                                entry = entry,
+                                editMode = editMode,
+                                onClick = { editingEntry = entry },
+                                onDelete = { scope.launch { foodDao.deleteEntry(entry) } }
+                            )
                         }
                     }
                 }
@@ -184,6 +209,40 @@ fun FoodScreen() {
                 scope.launch { logFood(foodDao, xpEngine, photoUriString, description, rating, timestamp) }
                 entryPhotoFile = null
                 showEntryDialog = false
+            }
+        )
+    }
+
+    editingEntry?.let { entry ->
+        ConfirmFoodDialog(
+            existing = entry,
+            // A freshly-retaken photo (entryPhotoFile) wins; otherwise keep the entry's own photo.
+            photoUri = entryPhotoFile?.let { photoFileUri(context, it) }
+                ?: entry.photoUri?.let { Uri.parse(it) },
+            onTakePhoto = { launchCamera() },
+            onDismiss = {
+                entryPhotoFile?.delete()
+                entryPhotoFile = null
+                editingEntry = null
+            },
+            onSave = { description, rating, timestamp ->
+                val newPhoto = entryPhotoFile?.let { photoFileUri(context, it).toString() } ?: entry.photoUri
+                val date = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+                scope.launch {
+                    // No XP grant on edit - only a brand-new log earns VIT (one-directional, same
+                    // as every other grant in this app).
+                    foodDao.updateEntry(
+                        entry.copy(
+                            description = description,
+                            rating = rating,
+                            timestamp = timestamp,
+                            date = date,
+                            photoUri = newPhoto
+                        )
+                    )
+                }
+                entryPhotoFile = null
+                editingEntry = null
             }
         )
     }
@@ -217,8 +276,12 @@ suspend fun logFood(
 }
 
 @Composable
-private fun FoodRow(entry: FoodLogEntry, onDelete: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(0.dp)) {
+private fun FoodRow(entry: FoodLogEntry, editMode: Boolean, onClick: () -> Unit, onDelete: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp),
+        modifier = if (editMode) Modifier.clickable(onClick = onClick) else Modifier
+    ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -254,8 +317,8 @@ private fun FoodRow(entry: FoodLogEntry, onDelete: () -> Unit) {
                     )
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete entry")
+            if (editMode) {
+                SubtleIconButton(Icons.Outlined.Delete, "Delete entry", onClick = onDelete)
             }
         }
     }
@@ -293,18 +356,26 @@ fun ConfirmFoodDialog(
     photoUri: Uri?,
     onTakePhoto: () -> Unit,
     onDismiss: () -> Unit,
-    onSave: (description: String, rating: FoodRating, timestamp: Long) -> Unit
+    onSave: (description: String, rating: FoodRating, timestamp: Long) -> Unit,
+    existing: FoodLogEntry? = null
 ) {
-    var description by remember { mutableStateOf("") }
-    var rating by remember { mutableStateOf(FoodRating.OK) }
+    var description by remember(existing?.id) { mutableStateOf(existing?.description ?: "") }
+    var rating by remember(existing?.id) { mutableStateOf(existing?.rating ?: FoodRating.OK) }
     // Defaults to now, editable (user feedback, 2026-09-02: forgot to log, doing it later) - same
-    // combined DatePicker + TimePicker shape the Dashboard's body-stat logging already uses.
-    var dateTime by remember { mutableStateOf(LocalDateTime.now()) }
+    // combined DatePicker + TimePicker shape the Dashboard's body-stat logging already uses. When
+    // editing an existing entry, prefilled from its own timestamp instead.
+    var dateTime by remember(existing?.id) {
+        mutableStateOf(
+            existing?.let {
+                Instant.ofEpochMilli(it.timestamp).atZone(ZoneId.systemDefault()).toLocalDateTime()
+            } ?: LocalDateTime.now()
+        )
+    }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Log Food") },
+        title = { Text(if (existing == null) "Log Food" else "Edit Food") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (photoUri != null) {

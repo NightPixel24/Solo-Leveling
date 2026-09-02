@@ -1403,6 +1403,47 @@ crash sweep showed no app crashes. Not yet installed to the user's real Pixel 7 
 disconnected mid-session; pass 21's v24->v25 install already went to it earlier today, so the
 outstanding real-device step is the v25->v26 bump).
 
+**Twenty-third feedback pass (2026-09-02, v1.14.0 -> v1.15.0)**: four small UI changes, no schema
+change (`FoodDao` gained an `@Update` method - a DAO addition, not a schema change).
+- **Water tab shows current consumption in ml + L** (user feedback: "under the water cups section
+  put current water consumed in ml and Liters") - a new line under the existing
+  "X / Y cups (250 ml each) - Z L goal" summary reading "So far: {cups*250} ml ({litersText} L)",
+  in `onSurface` (not the dimmer `onSurfaceVariant`) so the live number stands out.
+- **Food tab gets an edit toggle** (user feedback: "needs an edit button so when pressed the
+  delete button shows up and also when i click on an entry i can edit it") - same pencil/check
+  `editMode` pattern Tasks/Gym/Routine use. The per-row delete icon (previously always visible, now
+  a `SubtleIconButton` with `Icons.Outlined.Delete`) and tap-to-edit are both gated behind it. The
+  toggle sits in a new top `Row` next to the `StatChip(VIT)` (FoodScreen has no TopAppBar of its
+  own - it's nested in Life's Scaffold), shown only when `entries.isNotEmpty()`. Editing reuses
+  `ConfirmFoodDialog`, now with an `existing: FoodLogEntry? = null` param (title "Edit Food" vs
+  "Log Food", state `remember`ed keyed on `existing?.id`, prefilled from the entry incl. its
+  timestamp); save calls `foodDao.updateEntry(entry.copy(...))` with **no XP grant** (one-
+  directional, like every grant in this app) and re-derives `date` from the possibly-edited
+  timestamp. A retaken photo wins over the entry's existing `photoUri`.
+- **Dashboard "Coming Up Today" workout row ticks when any workout is logged today** (user
+  feedback: "when i log a workout it doesnt get ticked off from my coming up today section") -
+  previously `todaysWorkoutDone` only counted a session logged against an exercise of the
+  *scheduled* split day for this weekday, so logging any other workout (or having nothing
+  scheduled) never checked the row. Now it reads `workoutsByDate[today]` (the same GymSession +
+  rest-log derivation the Calendar uses), the label prefers the logged workout's name over the
+  scheduled one, and the empty fallback changed from "No workout scheduled today" (uncheckable
+  dead end) to "Log a workout today".
+- **Rank readout made more visible** (user feedback: "the E rank is hard to see its very washed
+  out") - both the `RankBadge` letter and the "{E} Rank" text next to the player name were
+  `colorScheme.primary` (`SystemBlue`) which read as washed out on the near-black background. Badge
+  letter is now `headlineMedium` + `FontWeight.Bold` in `SystemBlueBright` on a `primary`-at-28%
+  (was 15%) fill with a 2.5dp ring; the text line is now `titleMedium` + bold in `SystemBlueBright`
+  (was `bodySmall`/`primary`).
+Verified on the `SoloLeveling_Pixel6` emulator (plain `installDebug`, no migration - schema
+unchanged at v26; all 26 `connectedDebugAndroidTest` cases still pass as a regression check):
+Water tab shows "So far: 750 ml (0.75 L)" after tapping cup 3; Food edit toggle reveals a subtle
+trash icon per row and makes rows tap-to-edit, editing "Oatmeal" -> "Oatmeal with honey" + OK ->
+Unhealthy did an in-place `UPDATE` (still one `food_log_entries` row, VIT `xp_logs` unchanged at
+the single original +5); after logging a Bench session with nothing scheduled for today, Home's
+"Coming Up Today" row flipped to "Workout: Push Day" checked; the Rank badge "E" and "E Rank" text
+both render bright bold blue. A final `adb logcat` sweep showed no app crashes. Not yet installed
+to the user's real Pixel 7 this pass.
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

@@ -87,6 +87,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.entity.BodyStatEntry
@@ -155,6 +156,7 @@ import com.nightpixel.sololeveling.ui.components.WorkoutMonthCalendar
 import com.nightpixel.sololeveling.ui.components.statTagColor
 import com.nightpixel.sololeveling.ui.components.statTagFullName
 import com.nightpixel.sololeveling.ui.theme.SystemBlue
+import com.nightpixel.sololeveling.ui.theme.SystemBlueBright
 import com.nightpixel.sololeveling.ui.theme.SystemGreen
 import com.nightpixel.sololeveling.ui.theme.SystemRed
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
@@ -277,15 +279,18 @@ fun DashboardScreen(
     // feedback, 2026-09-02: "in the next up section on the home screen also show the high priority
     // tasks only from the daily list").
     val highPriorityDaily = remember(allTasks) { highPriorityDailyTasks(allTasks, TaskList.DEFAULT_ID) }
-    val todaysWorkout = remember(scheduledWorkouts, splitDays, today) {
+    // "Coming Up Today"'s workout row ticks off as soon as *any* workout (or rest day) is logged
+    // for today, not only the one scheduled for this weekday (user feedback, 2026-09-02: "when i
+    // log a workout it doesnt get ticked off from my coming up today section") - `workoutsByDate`
+    // already derives "what was done on date X" from GymSession + rest logs. The label prefers the
+    // logged workout's name, falls back to the scheduled one, then to a plain call to action.
+    val loggedWorkoutToday = remember(workoutsByDate, today) { workoutsByDate[today] }
+    val scheduledWorkoutToday = remember(scheduledWorkouts, splitDays, today) {
         scheduledWorkouts.find { it.dayOfWeek == today.dayOfWeek.value }
             ?.let { sw -> splitDays.find { it.id == sw.splitDayId } }
     }
-    val todaysWorkoutDone = remember(exercisesWithSessions, todaysWorkout, todayStr) {
-        todaysWorkout != null && exercisesWithSessions.any { ews ->
-            ews.exercise.splitDayId == todaysWorkout.id && ews.sessions.any { it.date == todayStr }
-        }
-    }
+    val todaysWorkout = loggedWorkoutToday ?: scheduledWorkoutToday
+    val todaysWorkoutDone = loggedWorkoutToday != null
     val waterGoalHitToday = todayWaterLog?.let { it.bottlesLogged >= it.goalBottles } ?: false
     val foodLoggedToday = remember(foodEntries, todayStr) { foodEntries.any { it.date == todayStr } }
     val moodLoggedToday = remember(moodEntries, todayStr) { moodEntries.any { it.date == todayStr } }
@@ -606,11 +611,14 @@ private fun DashboardHome(
                     // Plain, non-clickable rank readout (user feedback, 2026-08-31: "remove the
                     // rank titles... hunter is meaningless to me, i would rather it just be a
                     // text field non clickable that says 'E rank'") - replaces the old equipped-
-                    // title system (`data/gamification/Titles.kt`, now deleted) entirely.
+                    // title system (`data/gamification/Titles.kt`, now deleted) entirely. Brighter
+                    // blue + bolder/larger than the old bodySmall/primary, which read as washed
+                    // out against the near-black background (user feedback, 2026-09-02).
                     Text(
                         "${rank.label} Rank",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = SystemBlueBright
                     )
                 }
             }
@@ -700,7 +708,7 @@ private fun TodayChecklistCard(
                 modifier = Modifier.padding(bottom = 6.dp)
             )
             ChecklistRow(
-                label = todaysWorkout?.let { "Workout: ${it.name}" } ?: "No workout scheduled today",
+                label = todaysWorkout?.let { "Workout: ${it.name}" } ?: "Log a workout today",
                 checked = todaysWorkoutDone,
                 onClick = onGymClick
             )

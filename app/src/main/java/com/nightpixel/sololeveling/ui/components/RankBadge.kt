@@ -14,8 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.data.gamification.RankTier
+import com.nightpixel.sololeveling.ui.theme.SystemBlueBright
 import com.nightpixel.sololeveling.ui.theme.SystemCyan
 import com.nightpixel.sololeveling.ui.theme.accentGradient
 
@@ -45,16 +47,20 @@ fun RankBadge(rank: RankTier, onClick: () -> Unit, modifier: Modifier = Modifier
         Surface(
             modifier = Modifier.size(72.dp),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+            // Fill and letter both brighter than before - the old primary-at-15% fill with a
+            // plain primary letter read as washed out against the near-black background (user
+            // feedback, 2026-09-02: "the E rank is hard to see its very washed out").
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
         ) {
             Box(
-                modifier = Modifier.fillMaxSize().border(2.dp, accentGradient(), CircleShape),
+                modifier = Modifier.fillMaxSize().border(2.5.dp, accentGradient(), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     rank.label,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = SystemBlueBright
                 )
             }
         }
