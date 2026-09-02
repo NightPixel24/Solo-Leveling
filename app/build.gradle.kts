@@ -14,8 +14,8 @@ android {
         applicationId = "com.nightpixel.sololeveling"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "1.8.1"
+        versionCode = 21
+        versionName = "1.12.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

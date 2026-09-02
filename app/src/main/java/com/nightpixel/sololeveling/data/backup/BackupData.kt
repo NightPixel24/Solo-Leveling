@@ -13,6 +13,7 @@ import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.PlayerProfile
 import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
+import com.nightpixel.sololeveling.data.entity.RestDayLog
 import com.nightpixel.sololeveling.data.entity.RewardInventoryItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
 import com.nightpixel.sololeveling.data.entity.RoutineItem
@@ -58,5 +59,6 @@ data class BackupData(
     val playerProfile: PlayerProfile? = null,
     val routineItems: List<RoutineItem> = emptyList(),
     val bodyStatEntries: List<BodyStatEntry> = emptyList(),
-    val scheduledWorkouts: List<ScheduledWorkout> = emptyList()
+    val scheduledWorkouts: List<ScheduledWorkout> = emptyList(),
+    val restDayLogs: List<RestDayLog> = emptyList()
 )

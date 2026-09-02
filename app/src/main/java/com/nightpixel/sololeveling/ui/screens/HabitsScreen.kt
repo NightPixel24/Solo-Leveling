@@ -1,5 +1,6 @@
 package com.nightpixel.sololeveling.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.AlertDialog
@@ -59,6 +60,8 @@ import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.gamification.XpEngine
 import com.nightpixel.sololeveling.data.gamification.applyVitalityMultiplier
 import com.nightpixel.sololeveling.ui.components.StatChip
+import com.nightpixel.sololeveling.ui.components.SubtleIconButton
+import com.nightpixel.sololeveling.ui.components.statTagFullName
 import com.nightpixel.sololeveling.ui.theme.SystemYellow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -71,9 +74,21 @@ import java.time.temporal.ChronoUnit
 /** The Habits sub-tab of the Routine tab (renamed from a standalone bottom-nav screen, user
  * feedback 2026-08-30 - see `ui/screens/RoutineScreen.kt`). [showAddDialog]/[onDismissAddDialog]
  * are lifted to the parent since the "+" that opens it lives in the shared TopAppBar, contextual
- * to whichever sub-tab is active (the same pattern `GymScreen`'s Routine/Calendar tabs use). */
+ * to whichever sub-tab is active (the same pattern `GymScreen`'s Routine/Calendar tabs use).
+ * [editMode] (user feedback, 2026-08-31: "show all the trash icons and make it so on click I can
+ * edit the habits fields and name") is the same top-bar Edit toggle Schedule uses - while on, every
+ * row's delete icon is visible at once (replacing the old long-press-reveal pattern) and tapping a
+ * row opens [editingHabit]'s editor instead of doing nothing. */
 @Composable
-fun HabitsTab(showAddDialog: Boolean, onDismissAddDialog: () -> Unit, modifier: Modifier = Modifier) {
+fun HabitsTab(
+    showAddDialog: Boolean,
+    onDismissAddDialog: () -> Unit,
+    editMode: Boolean,
+    editingHabit: Habit?,
+    onEditHabit: (Habit) -> Unit,
+    onDismissEditDialog: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val app = context.applicationContext as SoloLevelingApplication
     val habitDao = remember { app.database.habitDao() }
@@ -84,8 +99,10 @@ fun HabitsTab(showAddDialog: Boolean, onDismissAddDialog: () -> Unit, modifier: 
     val habits by habitDao.observeHabitsWithLogs().collectAsState(initial = emptyList())
     val today = remember { LocalDate.now() }
 
-    val daily = habits.filter { it.habit.frequency == HabitFrequency.DAILY }
-    val weekly = habits.filter { it.habit.frequency == HabitFrequency.WEEKLY }
+    // Grouped by which stat each habit feeds (user feedback, 2026-09-02: "group them by type. Ie
+    // VIT, STR etc") rather than the old Daily/Weekly split - the per-row frequency chip + streak
+    // text already tells daily from weekly, so a stat header is the more useful grouping now.
+    val byStat = remember(habits) { habits.groupBy { it.habit.statTag } }
 
     if (habits.isEmpty()) {
         Box(
@@ -103,37 +120,42 @@ fun HabitsTab(showAddDialog: Boolean, onDismissAddDialog: () -> Unit, modifier: 
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (daily.isNotEmpty()) {
-                item { SectionHeader("Daily") }
-                items(daily, key = { it.habit.id }) { habitWithLogs ->
-                    HabitRow(
-                        habitWithLogs = habitWithLogs,
-                        today = today,
-                        onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, scope) },
-                        onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
-                    )
-                }
-            }
-            if (weekly.isNotEmpty()) {
-                item { SectionHeader("Weekly") }
-                items(weekly, key = { it.habit.id }) { habitWithLogs ->
-                    HabitRow(
-                        habitWithLogs = habitWithLogs,
-                        today = today,
-                        onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, scope) },
-                        onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } }
-                    )
+            StatTag.entries.forEach { tag ->
+                val group = byStat[tag].orEmpty()
+                if (group.isNotEmpty()) {
+                    item(key = "hdr-${tag.name}") { SectionHeader(statTagFullName(tag)) }
+                    items(group, key = { it.habit.id }) { habitWithLogs ->
+                        HabitRow(
+                            habitWithLogs = habitWithLogs,
+                            today = today,
+                            editMode = editMode,
+                            onToggleToday = { toggleToday(habitWithLogs, today, habitDao, foodDao, xpEngine, scope) },
+                            onDelete = { scope.launch { habitDao.deleteHabit(habitWithLogs.habit) } },
+                            onEditClick = { onEditHabit(habitWithLogs.habit) }
+                        )
+                    }
                 }
             }
         }
     }
 
     if (showAddDialog) {
-        AddHabitDialog(
+        HabitEditorDialog(
+            existing = null,
             onDismiss = onDismissAddDialog,
             onConfirm = { habit ->
                 scope.launch { habitDao.insertHabit(habit) }
                 onDismissAddDialog()
+            }
+        )
+    }
+    if (editingHabit != null) {
+        HabitEditorDialog(
+            existing = editingHabit,
+            onDismiss = onDismissEditDialog,
+            onConfirm = { habit ->
+                scope.launch { habitDao.updateHabit(habit) }
+                onDismissEditDialog()
             }
         )
     }
@@ -178,8 +200,10 @@ private fun SectionHeader(title: String) {
 private fun HabitRow(
     habitWithLogs: HabitWithLogs,
     today: LocalDate,
+    editMode: Boolean,
     onToggleToday: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onEditClick: () -> Unit
 ) {
     val habit = habitWithLogs.habit
     val doneDates = remember(habitWithLogs.logs) {
@@ -189,11 +213,15 @@ private fun HabitRow(
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Checkbox(checked = doneToday, onCheckedChange = { onToggleToday() })
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .then(if (editMode) Modifier.clickable(onClick = onEditClick) else Modifier)
+            ) {
                 Text(habit.title, style = MaterialTheme.typography.titleMedium)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -230,29 +258,34 @@ private fun HabitRow(
                     }
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete habit")
+            if (editMode) {
+                SubtleIconButton(Icons.Outlined.Delete, "Delete habit", onClick = onDelete)
             }
         }
     }
 }
 
+/** Add-or-edit for one habit (edit dialog generalized from the add-only original, same
+ * "TaskEditorDialog" precedent this codebase already used for Tasks - user feedback, 2026-08-31:
+ * "make it so I can edit the habits fields and name"). [existing] null means Add; non-null means
+ * Edit, prefilling every field and preserving id/createdAt via `.copy()` on confirm. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun AddHabitDialog(
+private fun HabitEditorDialog(
+    existing: Habit?,
     onDismiss: () -> Unit,
     onConfirm: (Habit) -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
-    var frequency by remember { mutableStateOf(HabitFrequency.DAILY) }
-    var targetPerWeek by remember { mutableStateOf(3) }
-    var statTag by remember { mutableStateOf(StatTag.DISCIPLINE) }
-    var reminderTime by remember { mutableStateOf<Int?>(null) }
+    var title by remember { mutableStateOf(existing?.title ?: "") }
+    var frequency by remember { mutableStateOf(existing?.frequency ?: HabitFrequency.DAILY) }
+    var targetPerWeek by remember { mutableStateOf(existing?.targetPerWeek ?: 3) }
+    var statTag by remember { mutableStateOf(existing?.statTag ?: StatTag.DISCIPLINE) }
+    var reminderTime by remember { mutableStateOf(existing?.reminderTime) }
     var showTimePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Habit") },
+        title = { Text(if (existing == null) "New Habit" else "Edit Habit") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -305,19 +338,24 @@ private fun AddHabitDialog(
             TextButton(
                 onClick = {
                     if (title.isNotBlank()) {
-                        onConfirm(
-                            Habit(
-                                title = title.trim(),
-                                frequency = frequency,
-                                targetPerWeek = targetPerWeek,
-                                statTag = statTag,
-                                reminderTime = reminderTime
-                            )
+                        val habit = existing?.copy(
+                            title = title.trim(),
+                            frequency = frequency,
+                            targetPerWeek = targetPerWeek,
+                            statTag = statTag,
+                            reminderTime = reminderTime
+                        ) ?: Habit(
+                            title = title.trim(),
+                            frequency = frequency,
+                            targetPerWeek = targetPerWeek,
+                            statTag = statTag,
+                            reminderTime = reminderTime
                         )
+                        onConfirm(habit)
                     }
                 },
                 enabled = title.isNotBlank()
-            ) { Text("Add") }
+            ) { Text(if (existing == null) "Add" else "Save") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
@@ -397,7 +435,7 @@ private fun weeklyStreak(doneDates: Set<LocalDate>, target: Int, today: LocalDat
     return streak
 }
 
-// Not private - reused by RoutineScreen.kt's AddRoutineItemDialog for its own optional
+// Not private - reused by RoutineScreen.kt's RoutineItemEditorDialog for its own optional
 // reminder time (same minutes-since-midnight shape as Habit.reminderTime).
 fun formatMinutes(minutes: Int): String {
     val time = LocalTime.of(minutes / 60, minutes % 60)

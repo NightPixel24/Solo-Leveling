@@ -1,10 +1,8 @@
 package com.nightpixel.sololeveling.ui.screens
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,12 +23,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,6 +52,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,11 +68,13 @@ import com.nightpixel.sololeveling.data.entity.Exercise
 import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.ExerciseWithSessions
 import com.nightpixel.sololeveling.data.entity.GymSession
+import com.nightpixel.sololeveling.data.entity.RestDayLog
 import com.nightpixel.sololeveling.data.entity.ScheduledWorkout
 import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.gamification.workoutCalendarForMonth
 import com.nightpixel.sololeveling.ui.components.StatChip
+import com.nightpixel.sololeveling.ui.components.SubtleIconButton
 import com.nightpixel.sololeveling.ui.components.WorkoutCalendarLegend
 import com.nightpixel.sololeveling.ui.components.WorkoutMonthCalendar
 import com.nightpixel.sololeveling.ui.components.parseHexColor
@@ -105,14 +109,28 @@ fun GymScreen() {
     val gymDao = remember { app.database.gymDao() }
     val splitDayDao = remember { app.database.splitDayDao() }
     val scheduledWorkoutDao = remember { app.database.scheduledWorkoutDao() }
+    val restDayLogDao = remember { app.database.restDayLogDao() }
     val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
 
     val exercises by gymDao.observeExercisesWithSessions().collectAsState(initial = emptyList())
     val splitDays by splitDayDao.observeSplitDays().collectAsState(initial = emptyList())
     val scheduledWorkouts by scheduledWorkoutDao.observeAll().collectAsState(initial = emptyList())
+    val restDayLogs by restDayLogDao.observeAll().collectAsState(initial = emptyList())
 
     var tab by remember { mutableStateOf(GymTab.ROUTINE) }
+    // Workouts-tab-only edit toggle (user feedback, 2026-09-02: "move the delete button to the top
+    // next to the plus icon. When clicked it shows all the delete icons") - same pencil/check
+    // pattern the Routine tab's own edit toggle already uses: delete affordances on each workout
+    // header and exercise row stay hidden until this is on.
+    var workoutsEditMode by remember { mutableStateOf(false) }
+    // Routine-tab-only edit toggle (user feedback, 2026-08-31: "add an edit button for gym
+    // routine as well so i can edit what workouts are on each day and delete them") - same
+    // pattern the Routine (Schedule/Habits) screen's own Edit button just established: swaps a
+    // long-press-to-reveal delete affordance for an always-visible one while active. Tapping a
+    // day row to open the assign/reassign picker already worked with no mode gate, in either
+    // mode - unaffected, that's the "edit what workout is on each day" half of the ask.
+    var routineEditMode by remember { mutableStateOf(false) }
     var showAddDayDialog by remember { mutableStateOf(false) }
     var editDayTarget by remember { mutableStateOf<SplitDay?>(null) }
     var deleteDayTarget by remember { mutableStateOf<SplitDay?>(null) }
@@ -138,13 +156,27 @@ fun GymScreen() {
                         // per-day picker (there's no single "add" action for a 7-row schedule) and
                         // Calendar adds by tapping a day instead.
                         if (tab == GymTab.WORKOUTS) {
+                            IconButton(onClick = { workoutsEditMode = !workoutsEditMode }) {
+                                Icon(
+                                    if (workoutsEditMode) Icons.Filled.Check else Icons.Outlined.Edit,
+                                    contentDescription = if (workoutsEditMode) "Done editing" else "Edit workouts"
+                                )
+                            }
                             IconButton(onClick = { showAddDayDialog = true }) {
                                 Icon(Icons.Filled.Add, contentDescription = "Add workout")
                             }
                         }
-                        if (tab == GymTab.ROUTINE && scheduledWorkouts.isNotEmpty()) {
-                            IconButton(onClick = { showClearScheduleConfirm = true }) {
-                                Icon(Icons.Filled.DeleteSweep, contentDescription = "Clear entire schedule")
+                        if (tab == GymTab.ROUTINE) {
+                            IconButton(onClick = { routineEditMode = !routineEditMode }) {
+                                Icon(
+                                    if (routineEditMode) Icons.Filled.Check else Icons.Outlined.Edit,
+                                    contentDescription = if (routineEditMode) "Done editing" else "Edit schedule"
+                                )
+                            }
+                            if (scheduledWorkouts.isNotEmpty()) {
+                                IconButton(onClick = { showClearScheduleConfirm = true }) {
+                                    Icon(Icons.Filled.DeleteSweep, contentDescription = "Clear entire schedule")
+                                }
                             }
                         }
                     }
@@ -163,6 +195,8 @@ fun GymScreen() {
                 exercises = exercises,
                 splitDays = splitDays,
                 today = today,
+                editMode = workoutsEditMode,
+                restLoggedTodaySplitDayId = restDayLogs.find { it.date == today.toString() }?.splitDayId,
                 onEditDay = { editDayTarget = it },
                 onDeleteDay = { deleteDayTarget = it },
                 onAddExerciseToDay = { addExerciseTargetDay = it },
@@ -173,30 +207,30 @@ fun GymScreen() {
                         logTarget = exercise to day
                     }
                 },
-                onDeleteExercise = { exercise -> scope.launch { gymDao.deleteExercise(exercise) } }
+                onDeleteExercise = { exercise -> scope.launch { gymDao.deleteExercise(exercise) } },
+                onToggleRestDay = { day, checked ->
+                    scope.launch {
+                        if (checked) restDayLogDao.upsert(RestDayLog(date = today.toString(), splitDayId = day.id))
+                        else restDayLogDao.deleteByDate(today.toString())
+                    }
+                }
             )
             GymTab.ROUTINE -> ScheduleTab(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
-                exercises = exercises,
                 splitDays = splitDays,
                 scheduledWorkouts = scheduledWorkouts,
+                editMode = routineEditMode,
                 today = today,
                 onAssign = { dayOfWeek, splitDayId ->
                     scope.launch { scheduledWorkoutDao.upsert(ScheduledWorkout(dayOfWeek, splitDayId)) }
                 },
-                onClearDay = { dayOfWeek -> scope.launch { scheduledWorkoutDao.clearDay(dayOfWeek) } },
-                onToggleExercise = { exercise, done ->
-                    if (done) {
-                        scope.launch { gymDao.deleteSession(exercise.id, today.toString()) }
-                    } else {
-                        logTarget = exercise to today
-                    }
-                }
+                onClearDay = { dayOfWeek -> scope.launch { scheduledWorkoutDao.clearDay(dayOfWeek) } }
             )
             GymTab.CALENDAR -> CalendarTab(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 exercises = exercises,
                 splitDays = splitDays,
+                restDayLogs = restDayLogs,
                 onDayClick = { date -> dayDetailDate = date }
             )
         }
@@ -205,8 +239,12 @@ fun GymScreen() {
     if (showAddDayDialog) {
         SplitDayDialog(
             onDismiss = { showAddDayDialog = false },
-            onConfirm = { name, colorHex ->
-                scope.launch { splitDayDao.insert(SplitDay(name = name, colorHex = colorHex, orderIndex = splitDays.size)) }
+            onConfirm = { name, colorHex, isRest ->
+                scope.launch {
+                    splitDayDao.insert(
+                        SplitDay(name = name, colorHex = colorHex, orderIndex = splitDays.size, isRest = isRest)
+                    )
+                }
                 showAddDayDialog = false
             }
         )
@@ -215,9 +253,13 @@ fun GymScreen() {
     editDayTarget?.let { day ->
         SplitDayDialog(
             initial = day,
+            // The rest/workout toggle can't be flipped once exercises are attached - that's
+            // delete-and-recreate territory, not an edit (same reasoning RoutineItemEditorDialog
+            // uses for its own locked mode).
+            restToggleLocked = exercises.any { it.exercise.splitDayId == day.id },
             onDismiss = { editDayTarget = null },
-            onConfirm = { name, colorHex ->
-                scope.launch { splitDayDao.update(day.copy(name = name, colorHex = colorHex)) }
+            onConfirm = { name, colorHex, isRest ->
+                scope.launch { splitDayDao.update(day.copy(name = name, colorHex = colorHex, isRest = isRest)) }
                 editDayTarget = null
             }
         )
@@ -322,11 +364,14 @@ private fun WorkoutsTab(
     exercises: List<ExerciseWithSessions>,
     splitDays: List<SplitDay>,
     today: LocalDate,
+    editMode: Boolean,
+    restLoggedTodaySplitDayId: Long?,
     onEditDay: (SplitDay) -> Unit,
     onDeleteDay: (SplitDay) -> Unit,
     onAddExerciseToDay: (SplitDay) -> Unit,
     onToggleExercise: (Exercise, LocalDate, done: Boolean) -> Unit,
-    onDeleteExercise: (Exercise) -> Unit
+    onDeleteExercise: (Exercise) -> Unit,
+    onToggleRestDay: (SplitDay, checked: Boolean) -> Unit
 ) {
     if (splitDays.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -338,40 +383,69 @@ private fun WorkoutsTab(
         return
     }
 
+    // Collapsed by default (user feedback, 2026-09-02: "right now they are all expanded hard to
+    // see") - absent from the map reads as collapsed. In-memory only, resets on navigating away,
+    // matching this app's other ephemeral per-screen UI state.
+    val expandedByDay = remember { mutableStateMapOf<Long, Boolean>() }
+
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         splitDays.forEach { day ->
+            // A rest day (user feedback, 2026-09-02) is a SplitDay with no exercises - a flat
+            // tickable row instead of a collapsible exercise list. Ticking it records today into
+            // rest_day_logs, which colors today on the Calendar with this rest day's color.
+            if (day.isRest) {
+                item(key = "rest-${day.id}") {
+                    RestDayRow(
+                        day = day,
+                        checkedToday = restLoggedTodaySplitDayId == day.id,
+                        editMode = editMode,
+                        onToggle = { checked -> onToggleRestDay(day, checked) },
+                        onEdit = { onEditDay(day) },
+                        onDelete = { onDeleteDay(day) }
+                    )
+                }
+                return@forEach
+            }
             val dayExercises = exercises.filter { it.exercise.splitDayId == day.id }
+            val expanded = expandedByDay[day.id] ?: false
             item(key = "header-${day.id}") {
                 SplitDayHeader(
                     day = day,
+                    exerciseCount = dayExercises.size,
+                    expanded = expanded,
+                    editMode = editMode,
+                    onToggleExpand = { expandedByDay[day.id] = !expanded },
                     onAddExercise = { onAddExerciseToDay(day) },
                     onEdit = { onEditDay(day) },
                     onDelete = { onDeleteDay(day) }
                 )
             }
-            if (dayExercises.isEmpty()) {
-                item(key = "empty-${day.id}") {
-                    Text(
-                        "No exercises yet",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                }
-            } else {
-                items(dayExercises, key = { it.exercise.id }) { exerciseWithSessions ->
-                    val exercise = exerciseWithSessions.exercise
-                    val doneToday = exerciseWithSessions.sessions.any { it.date == today.toString() }
-                    ExerciseRow(
-                        exercise = exercise,
-                        done = doneToday,
-                        onToggle = { onToggleExercise(exercise, today, doneToday) },
-                        onDelete = { onDeleteExercise(exercise) }
-                    )
+            if (expanded) {
+                if (dayExercises.isEmpty()) {
+                    item(key = "empty-${day.id}") {
+                        Text(
+                            "No exercises yet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                } else {
+                    items(dayExercises, key = { it.exercise.id }) { exerciseWithSessions ->
+                        val exercise = exerciseWithSessions.exercise
+                        val doneToday = exerciseWithSessions.sessions.any { it.date == today.toString() }
+                        ExerciseRow(
+                            exercise = exercise,
+                            done = doneToday,
+                            editMode = editMode,
+                            onToggle = { onToggleExercise(exercise, today, doneToday) },
+                            onDelete = { onDeleteExercise(exercise) }
+                        )
+                    }
                 }
             }
         }
@@ -381,30 +455,90 @@ private fun WorkoutsTab(
 @Composable
 private fun SplitDayHeader(
     day: SplitDay,
+    exerciseCount: Int,
+    expanded: Boolean,
+    editMode: Boolean,
+    onToggleExpand: () -> Unit,
     onAddExercise: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggleExpand),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expanded) "Collapse ${day.name}" else "Expand ${day.name}",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Box(
                 modifier = Modifier.size(12.dp).background(parseHexColor(day.colorHex), CircleShape)
             )
             Text(day.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "($exerciseCount)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         Row {
             IconButton(onClick = onAddExercise) {
                 Icon(Icons.Filled.Add, contentDescription = "Add exercise to ${day.name}")
             }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Edit, contentDescription = "Edit ${day.name}")
+            if (editMode) {
+                SubtleIconButton(Icons.Outlined.Edit, "Edit ${day.name}", onClick = onEdit)
+                SubtleIconButton(Icons.Outlined.Delete, "Delete ${day.name}", onClick = onDelete)
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete ${day.name}")
+        }
+    }
+}
+
+/** A rest day's row on the Workouts tab (user feedback, 2026-09-02) - a flat, non-collapsible
+ * row (a rest [SplitDay] has no exercises) with a checkbox that logs/unlogs today into
+ * `rest_day_logs`. Same colored dot + name as a workout header, plus a "REST" tag; edit/delete
+ * icons only in edit mode, and no "+ add exercise". */
+@Composable
+private fun RestDayRow(
+    day: SplitDay,
+    checkedToday: Boolean,
+    editMode: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(checked = checkedToday, onCheckedChange = { onToggle(!checkedToday) })
+            Box(modifier = Modifier.size(12.dp).background(parseHexColor(day.colorHex), CircleShape))
+            Text(
+                day.name,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 8.dp).weight(1f)
+            )
+            Surface(
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f),
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    "REST",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
+            if (editMode) {
+                SubtleIconButton(Icons.Outlined.Edit, "Edit ${day.name}", onClick = onEdit)
+                SubtleIconButton(Icons.Outlined.Delete, "Delete ${day.name}", onClick = onDelete)
             }
         }
     }
@@ -415,11 +549,12 @@ private fun CalendarTab(
     modifier: Modifier,
     exercises: List<ExerciseWithSessions>,
     splitDays: List<SplitDay>,
+    restDayLogs: List<RestDayLog>,
     onDayClick: (LocalDate) -> Unit
 ) {
     var displayedMonth by remember { mutableStateOf(YearMonth.now()) }
-    val workouts = remember(exercises, splitDays, displayedMonth) {
-        workoutCalendarForMonth(displayedMonth, exercises, splitDays)
+    val workouts = remember(exercises, splitDays, restDayLogs, displayedMonth) {
+        workoutCalendarForMonth(displayedMonth, exercises, splitDays, restDayLogs)
     }
 
     Column(
@@ -454,26 +589,27 @@ private fun CalendarTab(
     }
 }
 
-/** The Gym screen's third tab - a weekly plan mapping each weekday to one [SplitDay] via
- * [ScheduledWorkout] (user feedback, 2026-08-30: "basically the gym schedule"), plus a live "Today"
- * checklist at the top for whichever workout is scheduled for the current weekday - "similar to a
- * task list where... each day I can tick off those items until I check off the final item, and
- * then the very next day it resets" (same follow-up message). That reset is free: it reuses the
- * exact same doneToday-from-GymSession check the Workouts tab's own checkboxes already use, which
- * naturally reads as "unchecked" again once the calendar date rolls over - no separate "day
- * complete" flag needed. Each weekday row below is deliberately delete-icon-free at rest (tap
- * opens a picker to assign/reassign; long-press reveals a small clear icon, same pattern
- * `DashboardScreen`'s `BodyStatRow` already established for its own long-press-to-delete rows). */
+/** The Gym screen's third tab - a plain weekly plan mapping each weekday to one [SplitDay] via
+ * [ScheduledWorkout] (user feedback, 2026-08-30: "basically the gym schedule"). Used to also carry
+ * a live "Today" checklist at the top, but that's gone (user feedback, 2026-08-31: "remove the
+ * today section from the routine tab, i know what day it is, this is just to show a weekly
+ * schedule") - this tab is now purely the plan, with no derived "what's due right now" view; that
+ * live checklist already exists elsewhere (the Dashboard's "Coming Up Today" section). Tapping a
+ * weekday row always opens a picker to assign/reassign it, regardless of [editMode] - that already
+ * covers "edit what workout is on each day" with no mode gate needed. The row's clear icon used to
+ * sit behind a long-press instead of a permanent icon; now it's gated by the shared top-bar Edit
+ * toggle instead (user feedback, 2026-08-31: "add an edit button for gym routine as well... so i
+ * can... delete them"), same always-visible-in-edit-mode pattern the Routine (Schedule/Habits)
+ * screen's own Edit button established. */
 @Composable
 private fun ScheduleTab(
     modifier: Modifier,
-    exercises: List<ExerciseWithSessions>,
     splitDays: List<SplitDay>,
     scheduledWorkouts: List<ScheduledWorkout>,
+    editMode: Boolean,
     today: LocalDate,
     onAssign: (dayOfWeek: Int, splitDayId: Long) -> Unit,
-    onClearDay: (dayOfWeek: Int) -> Unit,
-    onToggleExercise: (Exercise, done: Boolean) -> Unit
+    onClearDay: (dayOfWeek: Int) -> Unit
 ) {
     if (splitDays.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -490,60 +626,18 @@ private fun ScheduleTab(
     val scheduledByDay = remember(scheduledWorkouts) { scheduledWorkouts.associateBy { it.dayOfWeek } }
     var pickerForDay by remember { mutableStateOf<Int?>(null) }
 
-    val todaysWorkout = scheduledByDay[today.dayOfWeek.value]?.let { splitDayById[it.splitDayId] }
-    val todaysExercises = remember(exercises, todaysWorkout) {
-        todaysWorkout?.let { day -> exercises.filter { it.exercise.splitDayId == day.id } }.orEmpty()
-    }
-
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item(key = "today-header") { Text("Today", style = MaterialTheme.typography.titleMedium) }
-        if (todaysWorkout == null) {
-            item(key = "today-empty") {
-                Text(
-                    "No workout scheduled today - tap Today's row below to plan one",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            item(key = "today-name") {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(modifier = Modifier.size(10.dp).background(parseHexColor(todaysWorkout.colorHex), CircleShape))
-                    Text(todaysWorkout.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            if (todaysExercises.isEmpty()) {
-                item(key = "today-no-exercises") {
-                    Text(
-                        "'${todaysWorkout.name}' has no exercises yet",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                items(todaysExercises, key = { "today-${it.exercise.id}" }) { ews ->
-                    val done = ews.sessions.any { it.date == today.toString() }
-                    ScheduleChecklistRow(exercise = ews.exercise, done = done, onToggle = { onToggleExercise(ews.exercise, done) })
-                }
-            }
-        }
-
-        item(key = "week-header") {
-            Text(
-                "This Week",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 12.dp)
-            )
-        }
         items(DayOfWeek.entries.toList(), key = { "day-${it.value}" }) { dow ->
             val workout = scheduledByDay[dow.value]?.let { splitDayById[it.splitDayId] }
             ScheduledDayRow(
                 label = dow.getDisplayName(TextStyle.FULL, Locale.getDefault()),
                 workout = workout,
+                editMode = editMode,
+                isToday = dow.value == today.dayOfWeek.value,
                 onClick = { pickerForDay = dow.value },
                 onClearDay = { onClearDay(dow.value) }
             )
@@ -564,30 +658,29 @@ private fun ScheduleTab(
 }
 
 @Composable
-private fun ScheduleChecklistRow(exercise: Exercise, done: Boolean, onToggle: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(0.dp)) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = done, onCheckedChange = { onToggle() })
-            Column(Modifier.weight(1f)) {
-                Text(exercise.name, style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TypeChip(exercise.type)
-                    Text(targetSummary(exercise), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun ScheduledDayRow(label: String, workout: SplitDay?, onClick: () -> Unit, onClearDay: () -> Unit) {
-    var showDelete by remember(label) { mutableStateOf(false) }
+private fun ScheduledDayRow(
+    label: String,
+    workout: SplitDay?,
+    editMode: Boolean,
+    isToday: Boolean,
+    onClick: () -> Unit,
+    onClearDay: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth().combinedClickable(
-            onClick = { if (showDelete) showDelete = false else onClick() },
-            onLongClick = { if (workout != null) showDelete = true }
-        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .then(
+                if (isToday) {
+                    Modifier.border(
+                        1.5.dp,
+                        MaterialTheme.colorScheme.primary,
+                        CardDefaults.shape
+                    )
+                } else {
+                    Modifier
+                }
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
@@ -596,15 +689,30 @@ private fun ScheduledDayRow(label: String, workout: SplitDay?, onClick: () -> Un
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+                if (isToday) {
+                    Text(
+                        "Today",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
             if (workout != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(modifier = Modifier.size(10.dp).background(parseHexColor(workout.colorHex), CircleShape))
                     Text(workout.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (showDelete) {
-                        IconButton(onClick = onClearDay) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Clear $label")
-                        }
+                    if (editMode) {
+                        SubtleIconButton(Icons.Outlined.Delete, "Clear $label", onClick = onClearDay)
                     }
                 }
             } else {
@@ -616,7 +724,7 @@ private fun ScheduledDayRow(label: String, workout: SplitDay?, onClick: () -> Un
 
 /** Shared by the Routine tab's per-day picker and [DayDetailDialog]'s "log a different workout"
  * flow - a plain tappable list of [SplitDay]s, same picker-row pattern already used elsewhere in
- * this app (e.g. the habit picker in `AddRoutineItemDialog`). */
+ * this app (e.g. the habit picker in `RoutineItemEditorDialog`). */
 @Composable
 private fun WorkoutPickerDialog(
     title: String,
@@ -683,6 +791,9 @@ private fun DayDetailDialog(
     onDismiss: () -> Unit
 ) {
     val dateStr = remember(date) { date.toString() }
+    // Rest days aren't logged from here - they're ticked from the Workouts tab (user feedback,
+    // 2026-09-02) - so this picker only offers real workouts.
+    val workoutDays = remember(splitDays) { splitDays.filter { !it.isRest } }
     val loggedToday = remember(exercises, dateStr) {
         exercises.mapNotNull { ews -> ews.sessions.find { it.date == dateStr }?.let { ews.exercise to it } }
     }
@@ -714,16 +825,16 @@ private fun DayDetailDialog(
                 }
 
                 Text("Log a workout for this day", style = MaterialTheme.typography.titleSmall)
-                val selectedDay = splitDays.find { it.id == selectedSplitDayId }
+                val selectedDay = workoutDays.find { it.id == selectedSplitDayId }
                 if (selectedDay == null) {
-                    if (splitDays.isEmpty()) {
+                    if (workoutDays.isEmpty()) {
                         Text(
                             "No workouts yet - add one on the Workouts tab first",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        splitDays.forEach { day ->
+                        workoutDays.forEach { day ->
                             Surface(
                                 onClick = { selectedSplitDayId = day.id },
                                 color = MaterialTheme.colorScheme.surface,
@@ -796,9 +907,7 @@ private fun LoggedSessionRow(exercise: Exercise, session: GymSession, onDelete: 
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        IconButton(onClick = onDelete) {
-            Icon(Icons.Filled.Delete, contentDescription = "Delete logged ${exercise.name}")
-        }
+        SubtleIconButton(Icons.Outlined.Delete, "Delete logged ${exercise.name}", onClick = onDelete)
     }
 }
 
@@ -806,13 +915,15 @@ private fun LoggedSessionRow(exercise: Exercise, session: GymSession, onDelete: 
 @Composable
 private fun SplitDayDialog(
     initial: SplitDay? = null,
+    restToggleLocked: Boolean = false,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, colorHex: String) -> Unit
+    onConfirm: (name: String, colorHex: String, isRest: Boolean) -> Unit
 ) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var colorHex by remember {
         mutableStateOf(initial?.colorHex ?: SplitDay.COLOR_PALETTE.first())
     }
+    var isRest by remember { mutableStateOf(initial?.isRest ?: false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -822,9 +933,18 @@ private fun SplitDayDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name (e.g. Back Day)") },
+                    label = { Text(if (isRest) "Name (e.g. Active Recovery)" else "Name (e.g. Back Day)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
+                )
+                // A rest day (user feedback, 2026-09-02) is still a workout in the list - named,
+                // colored - but has no exercises and is ticked per date onto the calendar instead
+                // of logging sets/reps. Locked once exercises exist (that's delete-and-recreate).
+                FilterChip(
+                    selected = isRest,
+                    onClick = { if (!restToggleLocked) isRest = !isRest },
+                    enabled = !restToggleLocked,
+                    label = { Text("Rest day (no exercises)") }
                 )
                 Text("Color:", style = MaterialTheme.typography.labelLarge)
                 ColorSwatchPicker(selected = colorHex, onSelect = { colorHex = it })
@@ -832,7 +952,7 @@ private fun SplitDayDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { if (name.isNotBlank()) onConfirm(name.trim(), colorHex) },
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim(), colorHex, isRest) },
                 enabled = name.isNotBlank()
             ) { Text(if (initial == null) "Add" else "Save") }
         },
@@ -885,6 +1005,7 @@ private fun isPersonalRecord(exercise: Exercise, session: GymSession, previousSe
 private fun ExerciseRow(
     exercise: Exercise,
     done: Boolean,
+    editMode: Boolean,
     onToggle: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -908,8 +1029,8 @@ private fun ExerciseRow(
                     )
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete exercise")
+            if (editMode) {
+                SubtleIconButton(Icons.Outlined.Delete, "Delete exercise", onClick = onDelete)
             }
         }
     }

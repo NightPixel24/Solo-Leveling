@@ -3,6 +3,7 @@ package com.nightpixel.sololeveling.ui.screens
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,11 +11,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -24,12 +25,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -56,6 +59,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,17 +69,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import kotlin.math.roundToInt
 import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.dao.TaskDao
 import com.nightpixel.sololeveling.data.entity.Priority
 import com.nightpixel.sololeveling.data.entity.StatTag
 import com.nightpixel.sololeveling.data.entity.Subtask
 import com.nightpixel.sololeveling.ui.components.StatChip
+import com.nightpixel.sololeveling.ui.components.SubtleIcon
+import com.nightpixel.sololeveling.ui.components.SubtleIconButton
 import com.nightpixel.sololeveling.data.entity.Task
 import com.nightpixel.sololeveling.data.entity.TaskList
 import com.nightpixel.sololeveling.data.entity.TaskWithSubtasks
@@ -103,6 +115,11 @@ fun TasksScreen() {
     var pendingFocusListId by remember { mutableStateOf<Long?>(null) }
     var showAddListDialog by remember { mutableStateOf(false) }
     var showAddTaskDialog by remember { mutableStateOf(false) }
+    // Top-bar Edit toggle (user feedback, 2026-09-02: "an edit icon at the top... when clicked it
+    // shows all the delete icons for the tasks and lets me drag them around") - same pencil/check
+    // pattern the Routine and Gym screens already use; per-task delete icons and drag handles stay
+    // hidden until it's on.
+    var editMode by remember { mutableStateOf(false) }
 
     // A newly added list isn't in `lists` yet on the frame it's created, so
     // park the target id and jump the pager to it once the Flow catches up.
@@ -127,6 +144,12 @@ fun TasksScreen() {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { editMode = !editMode }) {
+                        Icon(
+                            if (editMode) Icons.Filled.Check else Icons.Outlined.Edit,
+                            contentDescription = if (editMode) "Done editing" else "Edit tasks"
+                        )
+                    }
                     IconButton(onClick = { showAddListDialog = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "Add list")
                     }
@@ -175,6 +198,7 @@ fun TasksScreen() {
                         taskDao = taskDao,
                         xpEngine = xpEngine,
                         scope = scope,
+                        editMode = editMode,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -200,8 +224,24 @@ fun TasksScreen() {
             onDismiss = { showAddTaskDialog = false },
             onConfirm = { title, dueDate, priority, notes ->
                 scope.launch {
+                    // A HIGH-priority task lands at the top automatically (user feedback,
+                    // 2026-09-02: "have high priority task to the top automatically when created")
+                    // by taking a position below the current minimum; anything else goes last.
+                    // It can still be dragged elsewhere afterwards.
+                    val position = if (priority == Priority.HIGH) {
+                        (taskDao.minPositionForList(currentList.id) ?: 0) - 1
+                    } else {
+                        (taskDao.maxPositionForList(currentList.id) ?: -1) + 1
+                    }
                     taskDao.insertTask(
-                        Task(listId = currentList.id, title = title, dueDate = dueDate, priority = priority, notes = notes)
+                        Task(
+                            listId = currentList.id,
+                            title = title,
+                            dueDate = dueDate,
+                            priority = priority,
+                            notes = notes,
+                            position = position
+                        )
                     )
                 }
                 showAddTaskDialog = false
@@ -310,12 +350,19 @@ private fun TaskListTabRow(
     }
 }
 
+/** Drag-to-reorder within a task list (user feedback, 2026-09-02) - hand-rolled the same way
+ * `RoutineScreen`'s `ReorderableDayPartSection` already is (this codebase favours small from-scratch
+ * Compose pieces over a reorder library for a single use). [order] mirrors the observed [tasks] but
+ * is swapped locally frame-by-frame while dragging; real `Task.position` values are only written
+ * once, on drag end, via `updateTask`. Rows are wrapped in `key(task.id)` so a mid-drag swap doesn't
+ * hand one row's running drag coroutine another row's data (the exact bug the Routine reorder hit). */
 @Composable
 private fun TaskListContent(
     listId: Long,
     taskDao: TaskDao,
     xpEngine: XpEngine,
     scope: CoroutineScope,
+    editMode: Boolean,
     modifier: Modifier = Modifier
 ) {
     val tasks by taskDao.observeTasksForList(listId).collectAsState(initial = emptyList())
@@ -329,50 +376,115 @@ private fun TaskListContent(
             )
         }
     } else {
+        var order by remember(tasks) { mutableStateOf(tasks) }
+        val itemHeights = remember { mutableStateMapOf<Long, Int>() }
+        var draggingId by remember { mutableStateOf<Long?>(null) }
+        var dragOffset by remember { mutableStateOf(0f) }
+
         LazyColumn(
             modifier = modifier,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(tasks, key = { it.task.id }) { taskWithSubtasks ->
-                TaskCard(
-                    taskWithSubtasks = taskWithSubtasks,
-                    onEdit = { editingTask = taskWithSubtasks.task },
-                    onToggleDone = {
-                        val task = taskWithSubtasks.task
-                        val nowDone = !task.isDone
-                        scope.launch {
-                            taskDao.updateTask(task.copy(isDone = nowDone))
-                            if (nowDone) {
-                                xpEngine.grant(StatTag.DISCIPLINE, 5, "Task: ${task.title}")
-                                // Spec Section 5.4 - "your Task list, reframed" as Side Quests;
-                                // completing one grants a small bonus on top of normal task XP.
-                                // No spec-given amount, so this is this app's own tuned value.
-                                xpEngine.grant(StatTag.DISCIPLINE, 3, "Side Quest bonus: ${task.title}")
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    order.forEach { taskWithSubtasks ->
+                        key(taskWithSubtasks.task.id) {
+                            val taskId = taskWithSubtasks.task.id
+                            val isDragging = editMode && taskId == draggingId
+                            Box(
+                                modifier = Modifier
+                                    .zIndex(if (isDragging) 1f else 0f)
+                                    .offset { IntOffset(0, if (isDragging) dragOffset.roundToInt() else 0) }
+                                    .onSizeChanged { itemHeights[taskId] = it.height }
+                            ) {
+                                TaskCard(
+                                    taskWithSubtasks = taskWithSubtasks,
+                                    editMode = editMode,
+                                    onEdit = { editingTask = taskWithSubtasks.task },
+                                    onToggleDone = {
+                                        val task = taskWithSubtasks.task
+                                        val nowDone = !task.isDone
+                                        scope.launch {
+                                            taskDao.updateTask(task.copy(isDone = nowDone))
+                                            if (nowDone) {
+                                                xpEngine.grant(StatTag.DISCIPLINE, 5, "Task: ${task.title}")
+                                                // Spec Section 5.4 - "your Task list, reframed" as Side
+                                                // Quests; completing one grants a small bonus on top of
+                                                // normal task XP. No spec-given amount, so this is this
+                                                // app's own tuned value.
+                                                xpEngine.grant(StatTag.DISCIPLINE, 3, "Side Quest bonus: ${task.title}")
+                                            }
+                                        }
+                                    },
+                                    onDelete = { scope.launch { taskDao.deleteTask(taskWithSubtasks.task) } },
+                                    onToggleSubtask = { subtask ->
+                                        val nowDone = !subtask.isDone
+                                        scope.launch {
+                                            taskDao.updateSubtask(subtask.copy(isDone = nowDone))
+                                            if (nowDone) xpEngine.grant(StatTag.DISCIPLINE, 2, "Subtask: ${subtask.title}")
+                                        }
+                                    },
+                                    onDeleteSubtask = { subtask -> scope.launch { taskDao.deleteSubtask(subtask) } },
+                                    onAddSubtask = { title ->
+                                        scope.launch {
+                                            taskDao.insertSubtask(
+                                                Subtask(
+                                                    taskId = taskWithSubtasks.task.id,
+                                                    title = title,
+                                                    position = taskWithSubtasks.subtasks.size
+                                                )
+                                            )
+                                        }
+                                    },
+                                    dragHandleModifier = Modifier.pointerInput(taskId) {
+                                        detectVerticalDragGestures(
+                                            onDragStart = { draggingId = taskId; dragOffset = 0f },
+                                            onDragEnd = {
+                                                draggingId = null
+                                                dragOffset = 0f
+                                                if (order.map { it.task.id } != tasks.map { it.task.id }) {
+                                                    val committed = order
+                                                    scope.launch {
+                                                        committed.forEachIndexed { index, tws ->
+                                                            if (tws.task.position != index) {
+                                                                taskDao.updateTask(tws.task.copy(position = index))
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onDragCancel = { draggingId = null; dragOffset = 0f },
+                                            onVerticalDrag = { change, delta ->
+                                                change.consume()
+                                                dragOffset += delta
+                                                val currentIndex = order.indexOfFirst { it.task.id == taskId }
+                                                if (currentIndex == -1) return@detectVerticalDragGestures
+                                                if (dragOffset > 0 && currentIndex < order.size - 1) {
+                                                    val nextHeight = itemHeights[order[currentIndex + 1].task.id]
+                                                    if (nextHeight != null && dragOffset > nextHeight / 2f) {
+                                                        order = order.toMutableList().apply {
+                                                            add(currentIndex, removeAt(currentIndex + 1))
+                                                        }
+                                                        dragOffset -= nextHeight
+                                                    }
+                                                } else if (dragOffset < 0 && currentIndex > 0) {
+                                                    val prevHeight = itemHeights[order[currentIndex - 1].task.id]
+                                                    if (prevHeight != null && -dragOffset > prevHeight / 2f) {
+                                                        order = order.toMutableList().apply {
+                                                            add(currentIndex, removeAt(currentIndex - 1))
+                                                        }
+                                                        dragOffset += prevHeight
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                )
                             }
                         }
-                    },
-                    onDelete = { scope.launch { taskDao.deleteTask(taskWithSubtasks.task) } },
-                    onToggleSubtask = { subtask ->
-                        val nowDone = !subtask.isDone
-                        scope.launch {
-                            taskDao.updateSubtask(subtask.copy(isDone = nowDone))
-                            if (nowDone) xpEngine.grant(StatTag.DISCIPLINE, 2, "Subtask: ${subtask.title}")
-                        }
-                    },
-                    onDeleteSubtask = { subtask -> scope.launch { taskDao.deleteSubtask(subtask) } },
-                    onAddSubtask = { title ->
-                        scope.launch {
-                            taskDao.insertSubtask(
-                                Subtask(
-                                    taskId = taskWithSubtasks.task.id,
-                                    title = title,
-                                    position = taskWithSubtasks.subtasks.size
-                                )
-                            )
-                        }
                     }
-                )
+                }
             }
         }
     }
@@ -425,12 +537,14 @@ private fun ListNameDialog(
 @Composable
 private fun TaskCard(
     taskWithSubtasks: TaskWithSubtasks,
+    editMode: Boolean,
     onEdit: () -> Unit,
     onToggleDone: () -> Unit,
     onDelete: () -> Unit,
     onToggleSubtask: (Subtask) -> Unit,
     onDeleteSubtask: (Subtask) -> Unit,
-    onAddSubtask: (String) -> Unit
+    onAddSubtask: (String) -> Unit,
+    dragHandleModifier: Modifier = Modifier
 ) {
     val task = taskWithSubtasks.task
     val subtasks = taskWithSubtasks.subtasks
@@ -439,6 +553,14 @@ private fun TaskCard(
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (editMode) {
+                    Box(
+                        modifier = dragHandleModifier.size(40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        SubtleIcon(Icons.Filled.DragIndicator, "Drag to reorder")
+                    }
+                }
                 Checkbox(checked = task.isDone, onCheckedChange = { onToggleDone() })
                 Column(
                     modifier = Modifier
@@ -480,17 +602,16 @@ private fun TaskCard(
                         )
                     }
                 }
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Filled.Edit, contentDescription = "Edit task")
-                }
+                SubtleIconButton(Icons.Outlined.Edit, "Edit task", onClick = onEdit)
                 IconButton(onClick = { expanded = !expanded }) {
                     Icon(
                         if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (expanded) "Hide subtasks" else "Show subtasks"
+                        contentDescription = if (expanded) "Hide subtasks" else "Show subtasks",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete task")
+                if (editMode) {
+                    SubtleIconButton(Icons.Outlined.Delete, "Delete task", onClick = onDelete)
                 }
             }
 

@@ -8,7 +8,10 @@ import kotlinx.serialization.Serializable
  * fixed weekday (user feedback, 2026-08-26: missing a day and working out the next day used to
  * push every subsequent exercise onto the wrong weekday header). `colorHex` drives both this
  * day's chip and the workout calendar's per-day color coding. `orderIndex` is the user's chosen
- * split order (Day 1, Day 2, ...), independent of creation order. */
+ * split order (Day 1, Day 2, ...), independent of creation order. `isRest` (user feedback,
+ * 2026-09-02) marks this as a rest day rather than a workout: it still has a name and color and
+ * lists on the Workouts tab like any other, but has no [Exercise]s attached and is ticked off per
+ * date into [RestDayLog] instead of logging [GymSession]s. */
 @Serializable
 @Entity(tableName = "split_days")
 data class SplitDay(
@@ -16,6 +19,7 @@ data class SplitDay(
     val name: String,
     val colorHex: String,
     val orderIndex: Int,
+    val isRest: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     companion object {

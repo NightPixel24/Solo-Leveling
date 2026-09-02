@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
@@ -118,7 +119,6 @@ import com.nightpixel.sololeveling.data.gamification.MAX_STAT_LEVEL
 import com.nightpixel.sololeveling.data.gamification.MoodDistribution
 import com.nightpixel.sololeveling.data.gamification.NextUpItem
 import com.nightpixel.sololeveling.data.gamification.RankTier
-import com.nightpixel.sololeveling.data.gamification.Title
 import com.nightpixel.sololeveling.data.gamification.WeekGoodness
 import com.nightpixel.sololeveling.data.gamification.WeeklyVolume
 import com.nightpixel.sololeveling.data.gamification.bloodPressureTrend
@@ -131,6 +131,7 @@ import com.nightpixel.sololeveling.data.gamification.foodHealthDistributionForMo
 import com.nightpixel.sololeveling.data.gamification.goodWeekHistory
 import com.nightpixel.sololeveling.data.gamification.gymVolumeByWeek
 import com.nightpixel.sololeveling.data.gamification.habitCompletionRates
+import com.nightpixel.sololeveling.data.gamification.highPriorityDailyTasks
 import com.nightpixel.sololeveling.data.gamification.moodDistributionForMonth
 import com.nightpixel.sololeveling.data.gamification.nextCalendarEvent
 import com.nightpixel.sololeveling.data.gamification.nextHabit
@@ -138,8 +139,6 @@ import com.nightpixel.sololeveling.data.gamification.nextRoutineItem
 import com.nightpixel.sololeveling.data.gamification.statXpTrends
 import com.nightpixel.sololeveling.data.gamification.weightTrend
 import com.nightpixel.sololeveling.data.gamification.weightValues
-import com.nightpixel.sololeveling.data.gamification.titleById
-import com.nightpixel.sololeveling.data.gamification.unlockedTitles
 import com.nightpixel.sololeveling.data.gamification.workoutCalendarForMonth
 import com.nightpixel.sololeveling.data.gamification.xpForLevel
 import com.nightpixel.sololeveling.ui.components.GlowCard
@@ -208,6 +207,7 @@ fun DashboardScreen(
     val playerProfileDao = remember { app.database.playerProfileDao() }
     val splitDayDao = remember { app.database.splitDayDao() }
     val scheduledWorkoutDao = remember { app.database.scheduledWorkoutDao() }
+    val restDayLogDao = remember { app.database.restDayLogDao() }
     val routineDao = remember { app.database.routineDao() }
     val calendarDao = remember { app.database.calendarDao() }
     val healthDao = remember { app.database.healthDao() }
@@ -223,11 +223,7 @@ fun DashboardScreen(
     val rank = remember(goals) { computeRank(goals) }
 
     val profile by playerProfileDao.observe().collectAsState(initial = null)
-    val equippedTitle = remember(profile, rank, orderedStats) {
-        titleById(profile?.equippedTitleId, rank, orderedStats)
-    }
     var showRenameDialog by remember { mutableStateOf(false) }
-    var showTitlePicker by remember { mutableStateOf(false) }
     var showRadarChart by remember { mutableStateOf(false) }
 
     val today = remember { LocalDate.now() }
@@ -257,21 +253,30 @@ fun DashboardScreen(
     val routineItems by routineDao.observeItems().collectAsState(initial = emptyList())
     val calendarEvents by calendarDao.observeEvents().collectAsState(initial = emptyList())
     val bodyStatEntries by healthDao.observeEntries().collectAsState(initial = emptyList())
-    val workoutsByDate = remember(exercisesWithSessions, splitDays, currentMonth) {
-        workoutCalendarForMonth(currentMonth, exercisesWithSessions, splitDays)
+    val restDayLogs by restDayLogDao.observeAll().collectAsState(initial = emptyList())
+    val workoutsByDate = remember(exercisesWithSessions, splitDays, restDayLogs, currentMonth) {
+        workoutCalendarForMonth(currentMonth, exercisesWithSessions, splitDays, restDayLogs)
     }
 
     // "At a Glance" (user feedback, 2026-08-30: replaces Today's/This Week's Quests - "start
     // fresh... at a glance window to see what's upcoming next") - three independent "next" signals
     // rather than one merged list, matching how the user described them separately.
     val habitTitleById = remember(habitsWithLogs) { habitsWithLogs.associate { it.habit.id to it.habit.title } }
+    // Habits already slotted into a Routine schedule item - excluded from the standalone "next
+    // habit" signal so a slotted habit doesn't appear twice in Next Up (user feedback, 2026-09-02:
+    // "the habit and routine show up twice for upcoming... it's the same information").
+    val scheduledHabitIds = remember(routineItems) { routineItems.mapNotNull { it.habitId }.toSet() }
     val nextRoutine = remember(routineItems, habitTitleById, nowMinute) {
         nextRoutineItem(routineItems, habitTitleById, nowMinute)
     }
-    val nextHabitUp = remember(habitsWithLogs, today, nowMinute) {
-        nextHabit(habitsWithLogs, today, nowMinute)
+    val nextHabitUp = remember(habitsWithLogs, today, nowMinute, scheduledHabitIds) {
+        nextHabit(habitsWithLogs, today, nowMinute, scheduledHabitIds)
     }
     val nextEvent = remember(calendarEvents) { nextCalendarEvent(calendarEvents, Instant.now()) }
+    // Incomplete HIGH-priority tasks from the permanent Daily list, surfaced in Next Up (user
+    // feedback, 2026-09-02: "in the next up section on the home screen also show the high priority
+    // tasks only from the daily list").
+    val highPriorityDaily = remember(allTasks) { highPriorityDailyTasks(allTasks, TaskList.DEFAULT_ID) }
     val todaysWorkout = remember(scheduledWorkouts, splitDays, today) {
         scheduledWorkouts.find { it.dayOfWeek == today.dayOfWeek.value }
             ?.let { sw -> splitDays.find { it.id == sw.splitDayId } }
@@ -353,13 +358,12 @@ fun DashboardScreen(
                     rank = rank,
                     onRankClick = { showRadarChart = true },
                     playerName = profile?.name ?: "Hunter",
-                    equippedTitle = equippedTitle,
                     onNameClick = { showRenameDialog = true },
-                    onTitleClick = { showTitlePicker = true },
                     orderedStats = orderedStats,
                     nextRoutine = nextRoutine,
                     nextHabitUp = nextHabitUp,
                     nextEvent = nextEvent,
+                    highPriorityTasks = highPriorityDaily,
                     todaysWorkout = todaysWorkout,
                     todaysWorkoutDone = todaysWorkoutDone,
                     waterGoalHitToday = waterGoalHitToday,
@@ -472,9 +476,9 @@ fun DashboardScreen(
                 capturedPhotoFile = null
                 showFoodDialog = false
             },
-            onSave = { description, rating ->
+            onSave = { description, rating, timestamp ->
                 val photoUriString = file?.let { photoFileUri(context, it).toString() }
-                scope.launch { logFood(foodDao, xpEngine, photoUriString, description, rating) }
+                scope.launch { logFood(foodDao, xpEngine, photoUriString, description, rating, timestamp) }
                 capturedPhotoFile = null
                 showFoodDialog = false
             }
@@ -505,20 +509,6 @@ fun DashboardScreen(
         )
     }
 
-    if (showTitlePicker) {
-        TitlePickerDialog(
-            unlocked = unlockedTitles(rank, orderedStats),
-            equippedId = equippedTitle.id,
-            onDismiss = { showTitlePicker = false },
-            onEquip = { titleId ->
-                scope.launch {
-                    playerProfileDao.upsert((profile ?: PlayerProfile()).copy(equippedTitleId = titleId))
-                }
-                showTitlePicker = false
-            }
-        )
-    }
-
     if (showRadarChart) {
         RadarChartDialog(orderedStats = orderedStats, onDismiss = { showRadarChart = false })
     }
@@ -533,13 +523,12 @@ private fun DashboardHome(
     rank: RankTier,
     onRankClick: () -> Unit,
     playerName: String,
-    equippedTitle: Title,
     onNameClick: () -> Unit,
-    onTitleClick: () -> Unit,
     orderedStats: List<Stat>,
     nextRoutine: NextUpItem?,
     nextHabitUp: NextUpItem?,
     nextEvent: CalendarEventCache?,
+    highPriorityTasks: List<String>,
     todaysWorkout: SplitDay?,
     todaysWorkoutDone: Boolean,
     waterGoalHitToday: Boolean,
@@ -575,7 +564,12 @@ private fun DashboardHome(
     ) {
         item { SectionHeader("At a Glance") }
         item {
-            NextUpCard(nextRoutine = nextRoutine, nextHabitUp = nextHabitUp, nextEvent = nextEvent)
+            NextUpCard(
+                nextRoutine = nextRoutine,
+                nextHabitUp = nextHabitUp,
+                nextEvent = nextEvent,
+                highPriorityTasks = highPriorityTasks
+            )
         }
         item {
             TodayChecklistCard(
@@ -609,11 +603,14 @@ private fun DashboardHome(
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.clickable(onClick = onNameClick)
                     )
+                    // Plain, non-clickable rank readout (user feedback, 2026-08-31: "remove the
+                    // rank titles... hunter is meaningless to me, i would rather it just be a
+                    // text field non clickable that says 'E rank'") - replaces the old equipped-
+                    // title system (`data/gamification/Titles.kt`, now deleted) entirely.
                     Text(
-                        equippedTitle.displayName,
+                        "${rank.label} Rank",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable(onClick = onTitleClick)
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -636,17 +633,23 @@ private fun DashboardHome(
  * a real, expected state (nothing time-specific left today), not an error - shown as one quiet line
  * instead of an empty card. */
 @Composable
-private fun NextUpCard(nextRoutine: NextUpItem?, nextHabitUp: NextUpItem?, nextEvent: CalendarEventCache?) {
+private fun NextUpCard(
+    nextRoutine: NextUpItem?,
+    nextHabitUp: NextUpItem?,
+    nextEvent: CalendarEventCache?,
+    highPriorityTasks: List<String>
+) {
     GlowCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Next Up", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (nextRoutine == null && nextHabitUp == null && nextEvent == null) {
+            if (nextRoutine == null && nextHabitUp == null && nextEvent == null && highPriorityTasks.isEmpty()) {
                 Text(
                     "Nothing else scheduled today",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
+                highPriorityTasks.forEach { NextUpRow(Icons.Filled.PriorityHigh, it, "High") }
                 nextRoutine?.let { NextUpRow(Icons.Filled.Schedule, it.label, formatMinutes(it.minuteOfDay)) }
                 nextHabitUp?.let { NextUpRow(Icons.Filled.Repeat, it.label, formatMinutes(it.minuteOfDay)) }
                 nextEvent?.let {
@@ -1298,7 +1301,11 @@ private fun DashboardAnalytics(
                 elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    WorkoutMonthCalendar(month = currentMonth, workoutsByDate = workoutsByDate, onDayClick = { onGymClick() })
+                    WorkoutMonthCalendar(
+                        month = currentMonth,
+                        workoutsByDate = workoutsByDate,
+                        onDayClick = { onGymClick() }
+                    )
                     if (splitDays.isNotEmpty()) WorkoutCalendarLegend(splitDays)
                 }
             }
@@ -1651,48 +1658,3 @@ private fun RenameProfileDialog(
     )
 }
 
-@Composable
-private fun TitlePickerDialog(
-    unlocked: List<Title>,
-    equippedId: String,
-    onDismiss: () -> Unit,
-    onEquip: (String) -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Choose Title") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                unlocked.forEach { title ->
-                    val selected = title.id == equippedId
-                    Surface(
-                        onClick = { onEquip(title.id) },
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        },
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(title.displayName, style = MaterialTheme.typography.bodyLarge)
-                            if (selected) {
-                                Icon(Icons.Filled.Check, contentDescription = "Equipped", tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
-    )
-}

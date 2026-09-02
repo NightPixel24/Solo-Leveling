@@ -14,12 +14,21 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TaskDao {
+    // Manual drag order (Task.position) is the primary sort now (user feedback, 2026-09-02) -
+    // done tasks still sink to the bottom, and createdAt DESC breaks position ties so untouched
+    // lists keep their old newest-first order.
     @Transaction
     @Query(
         "SELECT * FROM tasks WHERE listId = :listId " +
-            "ORDER BY isDone ASC, (dueDate IS NULL) ASC, dueDate ASC, createdAt DESC"
+            "ORDER BY isDone ASC, position ASC, createdAt DESC"
     )
     fun observeTasksForList(listId: Long): Flow<List<TaskWithSubtasks>>
+
+    @Query("SELECT MIN(position) FROM tasks WHERE listId = :listId")
+    suspend fun minPositionForList(listId: Long): Int?
+
+    @Query("SELECT MAX(position) FROM tasks WHERE listId = :listId")
+    suspend fun maxPositionForList(listId: Long): Int?
 
     /** Across all lists - used by the Dashboard's Today's Quests section (spec Section 5.4) to
      * find tasks due today regardless of which list they're filed under. */

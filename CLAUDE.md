@@ -1134,6 +1134,202 @@ artifact. Not yet re-verified on the user's real Pixel 7 this pass - it was disc
 time; the original bug report came from a screenshot taken in the prior pass, not live viewing, so
 a live-device recheck is still worth doing next time the phone's connected.
 
+**Fifteenth feedback pass (2026-08-31, v1.8.1 -> v1.9.0)**: Schedule items on the Routine tab get
+their own checkbox (user feedback: "you didnt make the items checkboxes" - `RoutineItem`'s doc
+comment previously said free-text items were "just a plan, not a second thing to check off," but a
+plan you can't tick off doesn't match "the schedule should be similar to a task list where once the
+schedule is set, each day I can tick off... the very next day, it resets"). Schema v20->v21
+(`MIGRATION_20_21`) adds a nullable `completedDate` (ISO date string, same shape/reset mechanism as
+`WaterLog`/`MoodEntry`'s date-keyed rows) - checking a free-text item off sets today's date;
+comparing that against "today" on read is what makes it reset each day with no cron job needed. A
+habit-linked item is unaffected - it already reads/writes the real `HabitLog` the Habits tab shares.
+Verified via all 21 `connectedDebugAndroidTest` cases (including the new `migrate20To21`) and a
+manual pass confirming a free-text item's checkbox ticks, persists, and resets the next day.
+
+**Sixteenth feedback pass (2026-08-31, v1.9.0 -> v1.10.0)**: an Edit toggle for the Routine tab
+(user feedback: "next to schedule have an edit button... in schedule mode bring up the trash icons
+next to the items and also have a drag bar on the left side so i can move the scheduled items
+around... while in edit mode also have it so when i click on an item i can edit the fields and
+name" / "habits screen show all the trash icons and make it so on click i can edit the habits
+fields and name also"). One shared `editMode` boolean in `RoutineScreen` (a pencil/check toggle in
+the top bar, next to Add) drives both sub-tabs: on Schedule it swaps the old per-row long-press-
+reveal delete (fourth-pass-era pattern) for an always-visible trash icon plus a drag handle per row,
+and makes tapping a row's content open its editor instead of doing nothing; on Habits it does the
+same minus the drag handle (habits aren't reordered). `AddHabitDialog`/`AddRoutineItemDialog` were
+both generalized into `HabitEditorDialog`/`RoutineItemEditorDialog` (same "TaskEditorDialog"
+precedent the Tasks screen already set) - an `existing: Habit?`/`RoutineItem?` param that's null for
+Add, non-null for Edit (prefilled, `.copy()`-based on confirm to preserve id/createdAt). Editing a
+habit-linked schedule item locks its mode to HABIT and hides the mode toggle/habit picker entirely
+(switching a slotted habit to free-text mid-edit isn't a coherent "edit," it's delete-and-recreate,
+already covered by the row's own trash icon + Add flow) - only day part/reminder time are editable
+for that shape; a custom item's title is also editable.
+Schema v21->v22 (`MIGRATION_21_22`) adds `RoutineItem.position: Int` (default 0) so drag-to-reorder
+within a day part group has somewhere to persist - ties broken by `createdAt` so every pre-existing
+row (all defaulting to 0) keeps its old createdAt-ordered position with no backfill needed, and a
+fresh add is given the next index within its day part so it lands last, same as the old ordering.
+Drag-to-reorder itself (`ReorderableDayPartSection` in `RoutineScreen.kt`) is hand-rolled rather
+than a third-party reorder library - matching this codebase's existing preference for small
+from-scratch Compose pieces (RadarChart, LineChart) over new dependencies for a single use - using
+`detectVerticalDragGestures` on the drag handle, live row-height tracking via `onSizeChanged`, and
+an index-swap-past-midpoint algorithm; positions are only written to the DB once, on drag end.
+**Two real bugs caught during on-device testing** (not just missing feedback):
+- The drag itself silently never persisted - reordering looked correct on screen but reverted after
+  a cold restart. Root cause: the day part's rows were rendered via a plain `order.forEach { item
+  -> ... }` with no `key(item.id)` wrapper, so Compose's slot table matched each row's composable by
+  call *position*, not by which item occupied it. The instant a swap reordered the list, the slot
+  that had been running item A's `pointerInput` drag coroutine got silently handed item B's data at
+  the same position, restarting that coroutine (its key, `item.id`, had "changed") and killing the
+  in-flight gesture before `onDragEnd` ever fired - so the DB write it would have triggered never
+  ran, even though the visually-swapped `order` state (a separate, unaffected variable) stuck
+  around and looked like a successful reorder. Confirmed via temporary logging showing
+  `onDragStart` firing but `onDragEnd` never reached, immediately followed by a *second* row's
+  `pointerInput` block re-entering. Fixed by wrapping each row in `key(item.id) { ... }`.
+- Saving an edited Schedule item crashed with `SQLiteConstraintException: UNIQUE constraint failed:
+  routine_items.id` (an `INSERT`, not the expected `UPDATE`). Root cause: the confirm handler
+  branched on `if (editingItem != null) update(...) else insert(...)` *inside* `scope.launch {}`,
+  but the very next line (outside the coroutine) synchronously reset `editingItem = null` - since
+  the launched coroutine's body doesn't run inline, by the time it actually read `editingItem` the
+  state had already been cleared, so every edit fell through to `insert`, trying to insert a second
+  row at an id that already existed. Fixed by deciding insert-vs-update from `item.id != 0L` -
+  a plain value captured by the lambda's closure, not a mutable Compose state var racing against
+  its own reset.
+Verified on the `SoloLeveling_Pixel6` emulator (real v21->v22 migration; all 22
+`connectedDebugAndroidTest` cases passed, confirmed via `adb logcat`'s `TestRunner: run finished: 22
+tests, 0 failed`): added three Schedule items, confirmed Edit mode shows drag handles + always-on
+trash icons on every row at once; dragged the first item down past the other two and confirmed
+(via a direct `sqlite3` query through `run-as`, both immediately after the drag and again after a
+full `force-stop`+relaunch) the new order persisted for real, not just on screen - this is what
+caught the `key()` bug above; reproduced the edit-save crash exactly as a user would (tap a row,
+change its day part, tap Save), confirmed the fix stops it and correctly performs an `UPDATE` with
+no duplicate row created; did the same tap-to-edit round trip on a Habit (changed its stat tag,
+saved, confirmed the chip updated and no crash); a final `adb logcat *:E` sweep after a fresh launch
+showed no app crashes.
+
+**Seventeenth feedback pass (2026-08-31, v1.10.0 -> v1.11.0)**: extends the sixteenth pass's Edit-
+button pattern to Gym's Routine tab (user feedback: "can you add an edit button for gym routine as
+well so i can edit what workouts are on each day and delete them"). No schema change - purely a UI
+pattern match. A new `routineEditMode` toggle (pencil/check, same icon language) sits in the Gym
+top bar next to the existing "clear entire schedule" icon, visible whenever the Routine tab is
+active. Tapping a weekday row to open the assign/reassign picker already worked with no mode gate
+in either state, so that half of the ask ("edit what workouts are on each day") needed no change;
+what actually changed is the row's clear icon, which used to sit behind a long-press (`ScheduledDayRow`'s
+`combinedClickable`/`showDelete`, a fourth-pass-era pattern) and is now gated by `editMode` instead -
+always visible while editing, hidden otherwise - dropping the local `showDelete` state and its
+`ExperimentalFoundationApi` opt-in entirely in favor of a plain `clickable` for the row's tap-to-
+assign behavior. No bugs found this pass (the sixteenth pass's `key()` and closure-capture bugs were
+both specific to Schedule's drag-to-reorder and dialog-based add/edit, neither of which this row
+shape has - it has no drag handle and no separate edit dialog, just a picker + a clear icon).
+Verified on both the `SoloLeveling_Pixel6` emulator and the user's real Pixel 7 (phone was plugged
+in this pass) - `installDebug`d to both devices. Emulator: created a "Back Day" workout, scheduled
+it to Monday, confirmed the Edit toggle shows a trash icon on Monday's row only (the six still-Rest
+days show none, nothing to delete) with no long-press needed, tapped it and confirmed the day
+cleared back to Rest with the top-bar clear-all icon correctly disappearing (schedule now empty),
+and confirmed the toggle itself flips cleanly back to the pencil icon. Pixel 7: confirmed the app
+installs and launches cleanly with no crash in `adb logcat`; the device was locked for the rest of
+the session so the same manual walkthrough there is still outstanding for next time it's unlocked.
+
+**Eighteenth feedback pass (2026-08-31, v1.11.0 -> v1.11.1)**: removed the "Today" checklist from
+the top of Gym's Routine tab (user feedback: "remove the today section from the routine tab, i
+know what day it is, this is just to show a weekly schedule"). `ScheduleTab` is now purely the
+7-row weekly plan with no derived "what's due right now" view - that live checklist already exists
+elsewhere (the Dashboard's "Coming Up Today" section, eleventh pass), so nothing was lost, just a
+duplicate removed. No schema change. Dropped along with it: the `today`/`onToggleExercise` params
+this tab no longer needed and the now-fully-unused `ScheduleChecklistRow` composable (this
+codebase's "delete dead code completely" stance, same as the Boss Fights/Gold removals).
+Verified on the `SoloLeveling_Pixel6` emulator (plain `installDebug`, no schema change): Routine
+tab now opens straight into the weekday list with no Today section above it; confirmed the Edit
+toggle (seventeenth pass) still works unaffected - check icon shows, day rows unchanged. A final
+`adb logcat *:E` sweep showed no app crashes.
+
+**Nineteenth feedback pass (2026-08-31, no version bump at the time)**: removed the Rank Title
+system (user feedback: "remove the rank titles... hunter is meaningless to me, i would rather it
+just be a text field non clickable that says 'E rank'"). `data/gamification/Titles.kt` deleted
+entirely; the Dashboard's clickable name/title block became a plain non-clickable "{E} Rank" line
+next to the (still-tappable, opens the radar dialog) Rank badge. `PlayerProfile` lost its
+`equippedTitleId` column - schema v22->v23 (`MIGRATION_22_23`) rebuilds `player_profile`
+(create-copy-drop-rename, works on pre-3.35 SQLite) keeping just `id`/`name`. This pass was
+committed together with the twentieth below (its code sat uncommitted in the working tree with the
+version still at v1.11.1); `migrate22To23` in `MigrationTest.kt` covers it.
+
+**Twentieth feedback pass (2026-09-02, v1.11.1 -> v1.12.0)**: nine changes from one round of
+feedback. Schema v23->v24 (`MIGRATION_23_24`) bundles two unrelated column/table adds ("one
+evening, one version bump").
+- **Gym Routine highlights today**: the weekday row matching `LocalDate.now().dayOfWeek` in the Gym
+  Routine tab gets a primary-color border, a primary-tinted label, and a "Today" tag
+  (`ScheduledDayRow` gained an `isToday` param).
+- **Gym Workouts edit toggle**: a pencil/check toggle in the Gym top bar (Workouts tab only,
+  `workoutsEditMode`), same pattern the Routine tab's own toggle established - per-workout edit and
+  delete icons plus per-exercise delete icons stay hidden until it's on (the "+" add-exercise
+  action stays always visible).
+- **Collapsible workout lists**: each `SplitDayHeader` is now a tappable expand/collapse row with a
+  chevron and an exercise count, **collapsed by default** (user: "right now they are all expanded
+  hard to see"). Expansion state is in-memory (`mutableStateMapOf` keyed by split day id), resets
+  on navigating away like this app's other ephemeral per-screen UI state.
+- **Rest days = a rest "workout"** (reworked from a first cut that had a calendar-day toggle +
+  standalone `rest_days` table - user feedback: "make rest day a workout like the rest of them...
+  when you add a new workout have the option to make it REST day... tick it from the workout
+  screen... shouldnt have exercises attached"). `SplitDay` gained `isRest: Boolean`; the "New
+  Workout" dialog has a "Rest day (no exercises)" `FilterChip` (locked in edit if the workout
+  already has exercises - that's delete-and-recreate). A rest `SplitDay` renders on the Workouts
+  tab as a flat, non-collapsible `RestDayRow` (checkbox + colored dot + name + "REST" tag, no "+
+  add exercise") instead of a collapsible exercise list. Ticking it upserts today into the new
+  `rest_day_logs` table (`date` PK, one rest entry per calendar day, FK+cascade to `split_days`) -
+  the "was it done on date X" record a rest day can't get from `GymSession` (it has none).
+  `workoutCalendarForMonth` folds `rest_day_logs` in as any other `SplitDay` (an actual logged
+  exercise on a date still wins), so the Calendar colors a rest day with its own color and the
+  legend lists it like any workout - no special grey cell or "Rest" swatch. `DayDetailDialog`'s
+  "log a workout" picker filters `isRest` out (rest is ticked from the Workouts tab, not backfilled
+  from the calendar). Wired into the JSON backup as `restDayLogs`.
+- **Food entry time picker**: `ConfirmFoodDialog` gained a date + time button pair (default now,
+  combined `DatePicker`+`TimePicker`, same shape the Dashboard body-stat dialog uses) - user
+  forgets to log and does it later. `logFood` takes a `timestamp` now and derives the day `date`
+  from it, so a back-dated entry lands under the right day header.
+- **Home "Next Up" dedup**: `nextHabit` takes a `scheduledHabitIds` set and skips any habit already
+  slotted into a Routine schedule item, so a slotted habit with a time no longer shows twice (once
+  as its Routine item, once as itself) in the Dashboard's Next Up card.
+- **Routine Habits grouped by stat**: the Habits sub-tab groups habits under full-name stat
+  headers (Strength/Vitality/Discipline/Intelligence/Spirituality, in `StatTag.entries` order)
+  instead of the old Daily/Weekly split - the per-row frequency chip + streak text already tells
+  daily from weekly.
+- **Tasks edit toggle + drag reorder + HIGH-priority-to-top**: `Task` gained a `position` column;
+  `observeTasksForList` now orders by `isDone ASC, position ASC, createdAt DESC` (manual order
+  supersedes the old due-date ordering). A pencil/check top-bar toggle (`editMode`) reveals a drag
+  handle + delete icon per card (hidden otherwise). Drag-to-reorder is the exact hand-rolled
+  `ReorderableDayPartSection` port from the sixteenth pass - non-lazy `Column` inside a single
+  `LazyColumn` item, `key(task.id)` per row (the sixteenth pass's persistence bug), height
+  tracking, swap-past-midpoint, positions written once on drag end. A new task with HIGH priority
+  is inserted at `min(position) - 1` (lands on top); any other new task at `max(position) + 1`.
+- **Home "Next Up" shows HIGH-priority Daily tasks**: `highPriorityDailyTasks(tasks, dailyListId)`
+  feeds incomplete HIGH tasks from the permanent Daily list (`TaskList.DEFAULT_ID`) into the Next
+  Up card as their own rows (`PriorityHigh` icon, "High" label, no time).
+- **Edit-mode icons de-emphasized** (user feedback: the edit/trash icons revealed by an Edit
+  toggle "look a bit dated and are too pronounced... should be visible but not the center of
+  attention"). New shared `ui/components/SubtleIconButton.kt` (`SubtleIconButton` keeps the full
+  48dp touch target but draws an 18dp glyph in `onSurfaceVariant`; `SubtleIcon` is the bare glyph
+  for drag-handle `Box`es). Applied to every per-row delete/edit/drag affordance across Tasks, Gym
+  (Workouts/Routine/`RestDayRow`/`DayDetailDialog`), Routine (Schedule), and Habits, plus the
+  top-bar Edit toggles switched from filled to outlined `Icons.Outlined.Edit`. The bright filled
+  "+" (add) actions are left prominent - they're additive, not the thing being toned down.
+Also fixed a **latent backup bug** noticed while wiring rest-day logs into `BackupManager`:
+`scheduled_workouts` was exported but never restored on import (added, right after `split_days`
+since both it and `rest_day_logs` FK-reference them).
+Verified on the `SoloLeveling_Pixel6` emulator: all 24 `connectedDebugAndroidTest` migration cases
+pass (`run finished: 24 tests, 0 failed`), including the new `migrate23To24` (seeds real tasks + a
+split day; asserts `tasks.position` defaults to 0, `split_days.isRest` is added, and a
+`rest_day_logs` row FK-references the split day) and the extended full-chain test. Manual pass on a
+fresh install: added tasks and confirmed via `sqlite3` a HIGH task got `position = -1` (top),
+toggled Tasks edit mode, dragged a task to the top, and confirmed the new order persisted through a
+`force-stop`+relaunch; confirmed Gym Routine highlights "Wednesday" (today) with a border + "Today"
+tag; created a rest workout via the "Rest day" chip and a normal one, confirmed the rest one renders
+as a flat checkbox row with a "REST" tag and no add-exercise/chevron while the normal one is
+collapsible; ticked the rest workout and confirmed a `rest_day_logs` row plus the Calendar coloring
+today with that rest day's color and listing it in the legend like any workout; opened the food
+dialog, changed the time to 8:55 AM, saved and confirmed the DB `timestamp` reflects 08:55 not the
+current clock; confirmed the Habits sub-tab groups under Strength/Vitality/Discipline headers;
+confirmed Next Up shows "Zeta / High" and that slotting a timed habit into a Routine item removes
+its duplicate habit row; confirmed the edit-mode pencil/trash/drag icons now render small and muted
+(vs. the earlier full-size white filled ones). A final `adb logcat *:E` sweep showed no app crashes.
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

@@ -17,6 +17,7 @@ import com.nightpixel.sololeveling.data.dao.HealthDao
 import com.nightpixel.sololeveling.data.dao.MoodDao
 import com.nightpixel.sololeveling.data.dao.PlayerProfileDao
 import com.nightpixel.sololeveling.data.dao.PunishmentDao
+import com.nightpixel.sololeveling.data.dao.RestDayLogDao
 import com.nightpixel.sololeveling.data.dao.RewardDao
 import com.nightpixel.sololeveling.data.dao.RoutineDao
 import com.nightpixel.sololeveling.data.dao.ScheduledWorkoutDao
@@ -38,6 +39,7 @@ import com.nightpixel.sololeveling.data.entity.MoodEntry
 import com.nightpixel.sololeveling.data.entity.PlayerProfile
 import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
+import com.nightpixel.sololeveling.data.entity.RestDayLog
 import com.nightpixel.sololeveling.data.entity.RewardInventoryItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
 import com.nightpixel.sololeveling.data.entity.RoutineItem
@@ -65,9 +67,9 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         PunishmentPoolItem::class, PunishmentAssignment::class,
         RewardPoolItem::class, RewardInventoryItem::class,
         PlayerProfile::class, SplitDay::class, RoutineItem::class, BodyStatEntry::class,
-        ScheduledWorkout::class
+        ScheduledWorkout::class, RestDayLog::class
     ],
-    version = 20,
+    version = 24,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -90,9 +92,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun routineDao(): RoutineDao
     abstract fun healthDao(): HealthDao
     abstract fun scheduledWorkoutDao(): ScheduledWorkoutDao
+    abstract fun restDayLogDao(): RestDayLogDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 20
+        const val CURRENT_SCHEMA_VERSION = 24
         private const val DB_NAME = "solo_leveling.db"
 
         /** Fresh installs get a single protected "Daily" list (user feedback, 2026-08-26: "make
@@ -695,6 +698,83 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Free-text Routine schedule items get their own checkbox (user feedback, 2026-08-31:
+         * "you didnt make the items checkboxes" - previously only habit-linked items could be
+         * checked, per [RoutineItem]'s now-outdated doc comment). `completedDate` holds the ISO
+         * date it was last checked; null = not done. A plain nullable column add, no data to
+         * migrate - every existing row reads as "not done today" either way. */
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE routine_items ADD COLUMN completedDate TEXT")
+            }
+        }
+
+        /** Adds drag-to-reorder within a Schedule day part (user feedback, 2026-08-31: "have a
+         * drag bar on the left side so I can move the scheduled items around instead of being
+         * locked into place") - see [RoutineItem]'s doc comment for why a plain default-0 column
+         * needs no per-row backfill: `createdAt` already reproduces the pre-existing order as a
+         * tiebreak until the user actually drags something. */
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE routine_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** Drops the Dashboard's title system entirely (user feedback, 2026-08-31: "remove the
+         * rank titles... i would rather it just be a text field non clickable that says 'E
+         * rank'") - the equipped-title choice ([PlayerProfile.equippedTitleId]) has nothing left
+         * to reference now that `data/gamification/Titles.kt` is deleted, so the column goes too
+         * rather than leaving unused scaffolding around (same stance the Boss Fights/Gold removals
+         * already took). Table rebuild (create-copy-drop-rename) rather than a plain `DROP COLUMN`
+         * so this still works on the pre-3.35 SQLite versions this app's minSdk 26 can run on. */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS player_profile_new (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("INSERT INTO player_profile_new (id, name) SELECT id, name FROM player_profile")
+                db.execSQL("DROP TABLE player_profile")
+                db.execSQL("ALTER TABLE player_profile_new RENAME TO player_profile")
+            }
+        }
+
+        /** Bundles three unrelated-but-simultaneous changes from one round of feedback
+         * (2026-09-02), same "one evening, one version bump" approach earlier passes used:
+         * - `tasks.position` (user feedback: "an edit icon at the top... lets me drag them around
+         *   in different orders" + HIGH-priority tasks auto-added at the top) - a plain default-0
+         *   column add, no per-row backfill: `createdAt DESC` still reproduces the pre-existing
+         *   newest-first order as a tiebreak until the user actually drags something.
+         * - `split_days.isRest` + `rest_day_logs` (user feedback: rest days are "a workout like the
+         *   rest of them" - a [SplitDay] with `isRest = 1`, no exercises, ticked per date into
+         *   `rest_day_logs` from the Workouts tab). `rest_day_logs.date` is the PK (one rest entry
+         *   per calendar day), FK+cascade to `split_days`; its index mirrors the `@Index` on
+         *   [RestDayLog] so runMigrationsAndValidate's schema check passes. */
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE split_days ADD COLUMN isRest INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS rest_day_logs (
+                        date TEXT NOT NULL PRIMARY KEY,
+                        splitDayId INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(splitDayId) REFERENCES split_days(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_rest_day_logs_splitDayId " +
+                        "ON rest_day_logs(splitDayId)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -709,7 +789,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                         MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
-                        MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20
+                        MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
+                        MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
@@ -718,7 +799,7 @@ abstract class AppDatabase : RoomDatabase() {
                             // MIGRATION_13_14's inserts, so seed here instead.
                             db.execSQL(seedDefaultListSql())
                             StatTag.entries.forEach { db.execSQL(seedStatSql(it)) }
-                            db.execSQL("INSERT INTO player_profile (id, name, equippedTitleId) VALUES (0, 'Hunter', NULL)")
+                            db.execSQL("INSERT INTO player_profile (id, name) VALUES (0, 'Hunter')")
                         }
                     })
                     .build()

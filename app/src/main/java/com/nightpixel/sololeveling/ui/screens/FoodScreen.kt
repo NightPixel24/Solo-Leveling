@@ -28,16 +28,22 @@ import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,6 +75,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -171,9 +179,9 @@ fun FoodScreen() {
                 entryPhotoFile = null
                 showEntryDialog = false
             },
-            onSave = { description, rating ->
+            onSave = { description, rating, timestamp ->
                 val photoUriString = entryPhotoFile?.let { photoFileUri(context, it).toString() }
-                scope.launch { logFood(foodDao, xpEngine, photoUriString, description, rating) }
+                scope.launch { logFood(foodDao, xpEngine, photoUriString, description, rating, timestamp) }
                 entryPhotoFile = null
                 showEntryDialog = false
             }
@@ -189,11 +197,17 @@ suspend fun logFood(
     xpEngine: XpEngine,
     photoUri: String?,
     description: String,
-    rating: FoodRating
+    rating: FoodRating,
+    timestamp: Long = System.currentTimeMillis()
 ) {
+    // The user can back-date an entry (user feedback, 2026-09-02: "give me an option to choose a
+    // time I ate that food at. Sometimes I forget to log and do it later") - `date` is derived from
+    // whatever timestamp the dialog produced so the entry lands under the right day header.
+    val date = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDate().toString()
     foodDao.insertEntry(
         FoodLogEntry(
-            date = LocalDate.now().toString(),
+            date = date,
+            timestamp = timestamp,
             photoUri = photoUri,
             description = description,
             rating = rating
@@ -279,10 +293,15 @@ fun ConfirmFoodDialog(
     photoUri: Uri?,
     onTakePhoto: () -> Unit,
     onDismiss: () -> Unit,
-    onSave: (description: String, rating: FoodRating) -> Unit
+    onSave: (description: String, rating: FoodRating, timestamp: Long) -> Unit
 ) {
     var description by remember { mutableStateOf("") }
     var rating by remember { mutableStateOf(FoodRating.OK) }
+    // Defaults to now, editable (user feedback, 2026-09-02: forgot to log, doing it later) - same
+    // combined DatePicker + TimePicker shape the Dashboard's body-stat logging already uses.
+    var dateTime by remember { mutableStateOf(LocalDateTime.now()) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Log Food") },
@@ -329,15 +348,66 @@ fun ConfirmFoodDialog(
                         )
                     }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.weight(1f)) {
+                        Text(dateTime.toLocalDate().format(DateTimeFormatter.ofPattern("MMM d")))
+                    }
+                    OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.weight(1f)) {
+                        Text(dateTime.toLocalTime().format(DateTimeFormatter.ofPattern("h:mm a")))
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(description.trim(), rating) }) { Text("Save") }
+            TextButton(onClick = {
+                val timestamp = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                onSave(description.trim(), rating, timestamp)
+            }) { Text("Save") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Discard") }
         }
     )
+
+    if (showDatePicker) {
+        val initialMillis = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val newDate = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                        dateTime = LocalDateTime.of(newDate, dateTime.toLocalTime())
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Cancel") } }
+        ) { DatePicker(state = datePickerState) }
+    }
+
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = dateTime.hour,
+            initialMinute = dateTime.minute,
+            is24Hour = false
+        )
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            text = { TimePicker(state = timePickerState) },
+            confirmButton = {
+                TextButton(onClick = {
+                    dateTime = LocalDateTime.of(
+                        dateTime.toLocalDate(),
+                        LocalTime.of(timePickerState.hour, timePickerState.minute)
+                    )
+                    showTimePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showTimePicker = false }) { Text("Cancel") } }
+        )
+    }
 }
 
 private fun formatHeaderDate(date: String): String {

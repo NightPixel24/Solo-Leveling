@@ -272,6 +272,126 @@ class MigrationTest {
         }
     }
 
+    /** Seeds a real routine item before migrating, so the new nullable `completedDate` column
+     * (user feedback, 2026-08-31: "you didnt make the items checkboxes" - free-text items now get
+     * their own checkable done-state) is exercised against a real pre-existing row. */
+    @Test
+    fun migrate20To21() {
+        val db = helper.createDatabase(dbName, 20)
+        db.execSQL(
+            "INSERT INTO routine_items (id, dayPart, title, habitId, createdAt) " +
+                "VALUES (1, 'MORNING', 'Stretch', NULL, 0)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 21, true, AppDatabase.MIGRATION_20_21)
+
+        migrated.execSQL("UPDATE routine_items SET completedDate = '2026-08-31' WHERE id = 1")
+        migrated.query("SELECT completedDate FROM routine_items WHERE id = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("2026-08-31", cursor.getString(0))
+        }
+    }
+
+    /** Seeds two real routine items in the same day part before migrating, so the new `position`
+     * column (user feedback, 2026-08-31: drag-to-reorder within a Schedule day part) is exercised
+     * against real pre-existing rows - both should default to 0 (no backfill needed, see
+     * RoutineItem's doc comment) and remain independently updatable afterward. */
+    @Test
+    fun migrate21To22() {
+        val db = helper.createDatabase(dbName, 21)
+        db.execSQL(
+            "INSERT INTO routine_items (id, dayPart, title, habitId, createdAt) " +
+                "VALUES (1, 'MORNING', 'Stretch', NULL, 0)"
+        )
+        db.execSQL(
+            "INSERT INTO routine_items (id, dayPart, title, habitId, createdAt) " +
+                "VALUES (2, 'MORNING', 'Journal', NULL, 1)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 22, true, AppDatabase.MIGRATION_21_22)
+
+        migrated.query("SELECT position FROM routine_items WHERE id IN (1, 2)").use { cursor ->
+            while (cursor.moveToNext()) {
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+        migrated.execSQL("UPDATE routine_items SET position = 1 WHERE id = 1")
+        migrated.query("SELECT position FROM routine_items WHERE id = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+    }
+
+    /** Seeds a real player_profile row with a non-null equippedTitleId before migrating, so the
+     * title system's removal (user feedback, 2026-08-31: "remove the rank titles... i would
+     * rather it just be a text field non clickable that says 'E rank'") is exercised against real
+     * data - the name should survive the table rebuild, and equippedTitleId should be gone. */
+    @Test
+    fun migrate22To23() {
+        val db = helper.createDatabase(dbName, 22)
+        db.execSQL("INSERT INTO player_profile (id, name, equippedTitleId) VALUES (0, 'Joshua', 'RANK_C')")
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 23, true, AppDatabase.MIGRATION_22_23)
+
+        migrated.query("SELECT name FROM player_profile WHERE id = 0").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("Joshua", cursor.getString(0))
+        }
+        migrated.query("PRAGMA table_info(player_profile)").use { cursor ->
+            var hasEquippedTitleId = false
+            while (cursor.moveToNext()) {
+                if (cursor.getString(1) == "equippedTitleId") hasEquippedTitleId = true
+            }
+            assertEquals(false, hasEquippedTitleId)
+        }
+    }
+
+    /** Seeds two real tasks and a real split day before migrating, so the bundled v24 changes
+     * (user feedback, 2026-09-02) are exercised against real data: `tasks.position` defaults to 0
+     * on every existing row, `split_days` gains an `isRest` column, and the brand-new
+     * `rest_day_logs` table takes a row FK-referencing that split day. */
+    @Test
+    fun migrate23To24() {
+        val db = helper.createDatabase(dbName, 23)
+        db.execSQL(
+            "INSERT INTO tasks (id, listId, title, priority, notes, isDone, createdAt) " +
+                "VALUES (1, 1, 'Buy milk', 'HIGH', '', 0, 0)"
+        )
+        db.execSQL(
+            "INSERT INTO tasks (id, listId, title, priority, notes, isDone, createdAt) " +
+                "VALUES (2, 1, 'Call bank', 'MEDIUM', '', 0, 1)"
+        )
+        db.execSQL(
+            "INSERT INTO split_days (id, name, colorHex, orderIndex, createdAt) " +
+                "VALUES (1, 'Rest Day', '#42C2FF', 0, 0)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 24, true, AppDatabase.MIGRATION_23_24)
+
+        migrated.query("SELECT position FROM tasks WHERE id IN (1, 2)").use { cursor ->
+            while (cursor.moveToNext()) {
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+        migrated.execSQL("UPDATE tasks SET position = -1 WHERE id = 1")
+        migrated.query("SELECT position FROM tasks WHERE id = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(-1, cursor.getInt(0))
+        }
+
+        migrated.execSQL("UPDATE split_days SET isRest = 1 WHERE id = 1")
+        migrated.query("SELECT isRest FROM split_days WHERE id = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+
+        migrated.execSQL("INSERT INTO rest_day_logs (date, splitDayId, createdAt) VALUES ('2026-09-02', 1, 0)")
+        migrated.query("SELECT splitDayId FROM rest_day_logs WHERE date = '2026-09-02'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1L, cursor.getLong(0))
+        }
+    }
+
     /** The full chain a real device upgrading from the very first release runs through, plus a
      * sanity read through Room's own generated DAOs (not just raw-SQL schema validation) to
      * confirm the fully-migrated database is actually usable - the seeded rows MIGRATION_2_3,
@@ -283,14 +403,15 @@ class MigrationTest {
     fun migrateAllStepsAndOpenWithRoom() {
         helper.createDatabase(dbName, 1).close()
         helper.runMigrationsAndValidate(
-            dbName, 20, true,
+            dbName, 24, true,
             AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
             AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
             AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
             AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18, AppDatabase.MIGRATION_18_19,
-            AppDatabase.MIGRATION_19_20
+            AppDatabase.MIGRATION_19_20, AppDatabase.MIGRATION_20_21, AppDatabase.MIGRATION_21_22,
+            AppDatabase.MIGRATION_22_23, AppDatabase.MIGRATION_23_24
         )
 
         val db = Room.databaseBuilder(
@@ -305,7 +426,8 @@ class MigrationTest {
                 AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13,
                 AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
                 AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18, AppDatabase.MIGRATION_18_19,
-                AppDatabase.MIGRATION_19_20
+                AppDatabase.MIGRATION_19_20, AppDatabase.MIGRATION_20_21, AppDatabase.MIGRATION_21_22,
+                AppDatabase.MIGRATION_22_23, AppDatabase.MIGRATION_23_24
             )
             .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .build()
