@@ -62,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nightpixel.sololeveling.SoloLevelingApplication
 import com.nightpixel.sololeveling.data.entity.Exercise
@@ -69,6 +70,7 @@ import com.nightpixel.sololeveling.data.entity.ExerciseType
 import com.nightpixel.sololeveling.data.entity.ExerciseWithSessions
 import com.nightpixel.sololeveling.data.entity.GymSession
 import com.nightpixel.sololeveling.data.entity.RestDayLog
+import com.nightpixel.sololeveling.data.entity.RestDayNote
 import com.nightpixel.sololeveling.data.entity.ScheduledWorkout
 import com.nightpixel.sololeveling.data.entity.SplitDay
 import com.nightpixel.sololeveling.data.entity.StatTag
@@ -110,6 +112,7 @@ fun GymScreen() {
     val splitDayDao = remember { app.database.splitDayDao() }
     val scheduledWorkoutDao = remember { app.database.scheduledWorkoutDao() }
     val restDayLogDao = remember { app.database.restDayLogDao() }
+    val restDayNoteDao = remember { app.database.restDayNoteDao() }
     val xpEngine = remember { app.xpEngine }
     val scope = rememberCoroutineScope()
 
@@ -117,6 +120,7 @@ fun GymScreen() {
     val splitDays by splitDayDao.observeSplitDays().collectAsState(initial = emptyList())
     val scheduledWorkouts by scheduledWorkoutDao.observeAll().collectAsState(initial = emptyList())
     val restDayLogs by restDayLogDao.observeAll().collectAsState(initial = emptyList())
+    val restNotes by restDayNoteDao.observeAll().collectAsState(initial = emptyList())
 
     var tab by remember { mutableStateOf(GymTab.ROUTINE) }
     // Workouts-tab-only edit toggle (user feedback, 2026-09-02: "move the delete button to the top
@@ -135,6 +139,7 @@ fun GymScreen() {
     var editDayTarget by remember { mutableStateOf<SplitDay?>(null) }
     var deleteDayTarget by remember { mutableStateOf<SplitDay?>(null) }
     var addExerciseTargetDay by remember { mutableStateOf<SplitDay?>(null) }
+    var addRestNoteTargetDay by remember { mutableStateOf<SplitDay?>(null) }
     var logTarget by remember { mutableStateOf<Pair<Exercise, LocalDate>?>(null) }
     var dayDetailDate by remember { mutableStateOf<LocalDate?>(null) }
     var showClearScheduleConfirm by remember { mutableStateOf(false) }
@@ -194,12 +199,15 @@ fun GymScreen() {
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 exercises = exercises,
                 splitDays = splitDays,
+                restNotes = restNotes,
                 today = today,
                 editMode = workoutsEditMode,
                 restLoggedTodaySplitDayId = restDayLogs.find { it.date == today.toString() }?.splitDayId,
                 onEditDay = { editDayTarget = it },
                 onDeleteDay = { deleteDayTarget = it },
                 onAddExerciseToDay = { addExerciseTargetDay = it },
+                onAddRestNote = { addRestNoteTargetDay = it },
+                onDeleteRestNote = { note -> scope.launch { restDayNoteDao.delete(note) } },
                 onToggleExercise = { exercise, day, done ->
                     if (done) {
                         scope.launch { gymDao.deleteSession(exercise.id, day.toString()) }
@@ -253,10 +261,12 @@ fun GymScreen() {
     editDayTarget?.let { day ->
         SplitDayDialog(
             initial = day,
-            // The rest/workout toggle can't be flipped once exercises are attached - that's
-            // delete-and-recreate territory, not an edit (same reasoning RoutineItemEditorDialog
-            // uses for its own locked mode).
-            restToggleLocked = exercises.any { it.exercise.splitDayId == day.id },
+            // The rest/workout toggle can't be flipped once the day has content of either kind -
+            // exercises (a workout) or free-text notes (a rest day) - that's delete-and-recreate
+            // territory, not an edit (same reasoning RoutineItemEditorDialog uses for its own
+            // locked mode).
+            restToggleLocked = exercises.any { it.exercise.splitDayId == day.id } ||
+                restNotes.any { it.splitDayId == day.id },
             onDismiss = { editDayTarget = null },
             onConfirm = { name, colorHex, isRest ->
                 scope.launch { splitDayDao.update(day.copy(name = name, colorHex = colorHex, isRest = isRest)) }
@@ -267,15 +277,19 @@ fun GymScreen() {
 
     deleteDayTarget?.let { day ->
         val exerciseCount = exercises.count { it.exercise.splitDayId == day.id }
+        val noteCount = restNotes.count { it.splitDayId == day.id }
         AlertDialog(
             onDismissRequest = { deleteDayTarget = null },
             title = { Text("Delete '${day.name}'?") },
             text = {
                 Text(
-                    if (exerciseCount > 0) {
-                        "This also deletes its $exerciseCount exercise${if (exerciseCount == 1) "" else "s"} and their logged history."
-                    } else {
-                        "This workout has no exercises yet."
+                    when {
+                        day.isRest && noteCount > 0 ->
+                            "This also deletes its $noteCount note${if (noteCount == 1) "" else "s"}."
+                        day.isRest -> "This rest day has no notes yet."
+                        exerciseCount > 0 ->
+                            "This also deletes its $exerciseCount exercise${if (exerciseCount == 1) "" else "s"} and their logged history."
+                        else -> "This workout has no exercises yet."
                     }
                 )
             },
@@ -298,6 +312,17 @@ fun GymScreen() {
             onConfirm = { exercise ->
                 scope.launch { gymDao.insertExercise(exercise.copy(splitDayId = day.id)) }
                 addExerciseTargetDay = null
+            }
+        )
+    }
+
+    addRestNoteTargetDay?.let { day ->
+        RestNoteDialog(
+            splitDayName = day.name,
+            onDismiss = { addRestNoteTargetDay = null },
+            onConfirm = { text ->
+                scope.launch { restDayNoteDao.insert(RestDayNote(splitDayId = day.id, text = text)) }
+                addRestNoteTargetDay = null
             }
         )
     }
@@ -363,12 +388,15 @@ private fun WorkoutsTab(
     modifier: Modifier,
     exercises: List<ExerciseWithSessions>,
     splitDays: List<SplitDay>,
+    restNotes: List<RestDayNote>,
     today: LocalDate,
     editMode: Boolean,
     restLoggedTodaySplitDayId: Long?,
     onEditDay: (SplitDay) -> Unit,
     onDeleteDay: (SplitDay) -> Unit,
     onAddExerciseToDay: (SplitDay) -> Unit,
+    onAddRestNote: (SplitDay) -> Unit,
+    onDeleteRestNote: (RestDayNote) -> Unit,
     onToggleExercise: (Exercise, LocalDate, done: Boolean) -> Unit,
     onDeleteExercise: (Exercise) -> Unit,
     onToggleRestDay: (SplitDay, checked: Boolean) -> Unit
@@ -394,24 +422,49 @@ private fun WorkoutsTab(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         splitDays.forEach { day ->
-            // A rest day (user feedback, 2026-09-02) is a SplitDay with no exercises - a flat
-            // tickable row instead of a collapsible exercise list. Ticking it records today into
-            // rest_day_logs, which colors today on the Calendar with this rest day's color.
+            val expanded = expandedByDay[day.id] ?: false
+            // A rest day (user feedback, 2026-09-02) is a SplitDay with no exercises - it gets the
+            // same collapsible header as a workout, but ticking it records today into rest_day_logs
+            // (colors today on the Calendar with this rest day's color) and its "+" adds a plain
+            // free-text note rather than opening the exercise dialog.
             if (day.isRest) {
-                item(key = "rest-${day.id}") {
-                    RestDayRow(
+                val notes = restNotes.filter { it.splitDayId == day.id }
+                item(key = "rest-header-${day.id}") {
+                    RestDayHeader(
                         day = day,
-                        checkedToday = restLoggedTodaySplitDayId == day.id,
+                        expanded = expanded,
                         editMode = editMode,
-                        onToggle = { checked -> onToggleRestDay(day, checked) },
+                        checkedToday = restLoggedTodaySplitDayId == day.id,
+                        onToggleExpand = { expandedByDay[day.id] = !expanded },
+                        onToggleChecked = { checked -> onToggleRestDay(day, checked) },
+                        onAddNote = { onAddRestNote(day) },
                         onEdit = { onEditDay(day) },
                         onDelete = { onDeleteDay(day) }
                     )
                 }
+                if (expanded) {
+                    if (notes.isEmpty()) {
+                        item(key = "rest-empty-${day.id}") {
+                            Text(
+                                "Nothing added yet - tap + to jot down what this rest looks like",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    } else {
+                        items(notes, key = { "rest-note-${it.id}" }) { note ->
+                            RestNoteRow(
+                                note = note,
+                                editMode = editMode,
+                                onDelete = { onDeleteRestNote(note) }
+                            )
+                        }
+                    }
+                }
                 return@forEach
             }
             val dayExercises = exercises.filter { it.exercise.splitDayId == day.id }
-            val expanded = expandedByDay[day.id] ?: false
             item(key = "header-${day.id}") {
                 SplitDayHeader(
                     day = day,
@@ -500,30 +553,49 @@ private fun SplitDayHeader(
     }
 }
 
-/** A rest day's row on the Workouts tab (user feedback, 2026-09-02) - a flat, non-collapsible
- * row (a rest [SplitDay] has no exercises) with a checkbox that logs/unlogs today into
- * `rest_day_logs`. Same colored dot + name as a workout header, plus a "REST" tag; edit/delete
- * icons only in edit mode, and no "+ add exercise". */
+/** A rest day's header on the Workouts tab (user feedback, 2026-09-02: a rest day "should still
+ * have a drop down header similar to the other workouts design"). Mirrors [SplitDayHeader]'s
+ * chevron/dot/name/count/"+"/edit/delete layout, adding a leading checkbox that logs/unlogs today
+ * into `rest_day_logs` and a "REST" tag; the "+" adds a free-text note (see [RestNoteDialog])
+ * rather than opening the exercise dialog. */
 @Composable
-private fun RestDayRow(
+private fun RestDayHeader(
     day: SplitDay,
-    checkedToday: Boolean,
+    expanded: Boolean,
     editMode: Boolean,
-    onToggle: (Boolean) -> Unit,
+    checkedToday: Boolean,
+    onToggleExpand: () -> Unit,
+    onToggleChecked: (Boolean) -> Unit,
+    onAddNote: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggleExpand),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Row(
-            modifier = Modifier.padding(12.dp).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Checkbox(checked = checkedToday, onCheckedChange = { onToggle(!checkedToday) })
-            Box(modifier = Modifier.size(12.dp).background(parseHexColor(day.colorHex), CircleShape))
+            Icon(
+                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expanded) "Collapse ${day.name}" else "Expand ${day.name}",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Checkbox(checked = checkedToday, onCheckedChange = { onToggleChecked(!checkedToday) })
+            Box(
+                modifier = Modifier.size(12.dp).background(parseHexColor(day.colorHex), CircleShape)
+            )
             Text(
                 day.name,
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(start = 8.dp).weight(1f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
             Surface(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f),
@@ -536,12 +608,71 @@ private fun RestDayRow(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                 )
             }
+        }
+        Row {
+            IconButton(onClick = onAddNote) {
+                Icon(Icons.Filled.Add, contentDescription = "Add note to ${day.name}")
+            }
             if (editMode) {
                 SubtleIconButton(Icons.Outlined.Edit, "Edit ${day.name}", onClick = onEdit)
                 SubtleIconButton(Icons.Outlined.Delete, "Delete ${day.name}", onClick = onDelete)
             }
         }
     }
+}
+
+/** One free-text line under a rest day. Plain text plus an edit-mode-only delete - a rest note has
+ * nothing to log/check (the rest day itself is ticked from its header). */
+@Composable
+private fun RestNoteRow(
+    note: RestDayNote,
+    editMode: Boolean,
+    onDelete: () -> Unit
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(note.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            if (editMode) {
+                SubtleIconButton(Icons.Outlined.Delete, "Delete note", onClick = onDelete)
+            }
+        }
+    }
+}
+
+/** The rest-day equivalent of [AddExerciseDialog] - just a free-text field (user feedback,
+ * 2026-09-02: "dont show the exercise modal show a text box so i can type stuff in"). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RestNoteDialog(
+    splitDayName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add to $splitDayName") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("e.g. light stretching, 20 min walk") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (text.isNotBlank()) onConfirm(text.trim()) },
+                enabled = text.isNotBlank()
+            ) { Text("Add") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -689,24 +820,14 @@ private fun ScheduledDayRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
+            // No "Today" tag text - the border + primary label color already mark today (user
+            // feedback, 2026-09-02: "lose the Today text the highlighting is enough").
+            Text(
+                label,
                 modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                )
-                if (isToday) {
-                    Text(
-                        "Today",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
+                style = MaterialTheme.typography.titleMedium,
+                color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
             if (workout != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(modifier = Modifier.size(10.dp).background(parseHexColor(workout.colorHex), CircleShape))

@@ -392,6 +392,30 @@ class MigrationTest {
         }
     }
 
+    /** Seeds a real rest-day split day before migrating, so the brand-new `rest_day_notes` table
+     * (user feedback, 2026-09-02: a rest day "should still have a drop down header similar to the
+     * other workouts... when adding things under it dont show the exercise modal show a text box")
+     * is exercised against a real FK target, not just an empty-table schema check. */
+    @Test
+    fun migrate24To25() {
+        val db = helper.createDatabase(dbName, 24)
+        db.execSQL(
+            "INSERT INTO split_days (id, name, colorHex, orderIndex, isRest, createdAt) " +
+                "VALUES (1, 'Active Recovery', '#42C2FF', 0, 1, 0)"
+        )
+        db.close()
+        val migrated = helper.runMigrationsAndValidate(dbName, 25, true, AppDatabase.MIGRATION_24_25)
+
+        migrated.execSQL(
+            "INSERT INTO rest_day_notes (splitDayId, text, createdAt) VALUES (1, 'Light stretching', 0)"
+        )
+        migrated.query("SELECT splitDayId, text FROM rest_day_notes WHERE splitDayId = 1").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1L, cursor.getLong(0))
+            assertEquals("Light stretching", cursor.getString(1))
+        }
+    }
+
     /** The full chain a real device upgrading from the very first release runs through, plus a
      * sanity read through Room's own generated DAOs (not just raw-SQL schema validation) to
      * confirm the fully-migrated database is actually usable - the seeded rows MIGRATION_2_3,
@@ -403,7 +427,7 @@ class MigrationTest {
     fun migrateAllStepsAndOpenWithRoom() {
         helper.createDatabase(dbName, 1).close()
         helper.runMigrationsAndValidate(
-            dbName, 24, true,
+            dbName, 25, true,
             AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10,
@@ -411,7 +435,7 @@ class MigrationTest {
             AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
             AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18, AppDatabase.MIGRATION_18_19,
             AppDatabase.MIGRATION_19_20, AppDatabase.MIGRATION_20_21, AppDatabase.MIGRATION_21_22,
-            AppDatabase.MIGRATION_22_23, AppDatabase.MIGRATION_23_24
+            AppDatabase.MIGRATION_22_23, AppDatabase.MIGRATION_23_24, AppDatabase.MIGRATION_24_25
         )
 
         val db = Room.databaseBuilder(
@@ -427,7 +451,7 @@ class MigrationTest {
                 AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15, AppDatabase.MIGRATION_15_16,
                 AppDatabase.MIGRATION_16_17, AppDatabase.MIGRATION_17_18, AppDatabase.MIGRATION_18_19,
                 AppDatabase.MIGRATION_19_20, AppDatabase.MIGRATION_20_21, AppDatabase.MIGRATION_21_22,
-                AppDatabase.MIGRATION_22_23, AppDatabase.MIGRATION_23_24
+                AppDatabase.MIGRATION_22_23, AppDatabase.MIGRATION_23_24, AppDatabase.MIGRATION_24_25
             )
             .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .build()

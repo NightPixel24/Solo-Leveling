@@ -1330,6 +1330,49 @@ confirmed Next Up shows "Zeta / High" and that slotting a timed habit into a Rou
 its duplicate habit row; confirmed the edit-mode pencil/trash/drag icons now render small and muted
 (vs. the earlier full-size white filled ones). A final `adb logcat *:E` sweep showed no app crashes.
 
+**Twenty-first feedback pass (2026-09-02, v1.12.0 -> v1.13.0)**: two same-day follow-ups to the
+twentieth pass's Gym changes. Schema v24->v25 (`AppDatabase.MIGRATION_24_25`).
+- **Gym Routine tab drops the "Today" tag text** (user feedback: "lose the Today text the
+  highlighting is enough") - `ScheduledDayRow`'s `isToday` still drives the primary-color border +
+  primary-tinted weekday label, just without the extra "Today" `labelSmall` word next to the day
+  name. `ScheduledDayRow`'s inner label `Row` collapsed to a single weighted `Text`.
+- **Rest-day workouts get a collapsible dropdown header + free-text notes** (user feedback: "the
+  rest day should still have a drop down header similar to the other workouts design, its just that
+  when adding things under it dont show the exercise modal show a text box so i can type stuff
+  in"). The twentieth pass had rest days as a flat `RestDayRow` (checkbox + name + REST tag, no
+  expansion); this replaces it with `RestDayHeader` - the same chevron/dot/name/"+"/edit/delete
+  layout as `SplitDayHeader`, plus a leading checkbox (still logs today into `rest_day_logs`) and
+  the "REST" tag. Its "+" opens `RestNoteDialog` (a bare `OutlinedTextField`, the rest-day analogue
+  of `AddExerciseDialog`) rather than the exercise modal; expanded, the header lists
+  `RestNoteRow`s (plain text + edit-mode-only delete). New `RestDayNote` entity/table
+  (`rest_day_notes`, `id`/`splitDayId`/`text`/`createdAt`, FK+cascade to `split_days`) + `RestDayNoteDao`,
+  wired into the JSON backup (`restDayNotes`, restored right after `split_days` alongside
+  `rest_day_logs`/`scheduled_workouts`). A rest note is the rest day's *definition* (per-`SplitDay`,
+  not per-date) - same role exercises play under a normal workout. `MIGRATION_24_25` is a plain
+  additive `CREATE TABLE` (no data to migrate); `SplitDayDialog`'s rest toggle is now also locked
+  once the day has notes (not just exercises), and the delete-confirm dialog counts notes for a
+  rest day instead of exercises. `migrate24To25` in `MigrationTest.kt` (25 tests, all pass) seeds a
+  real rest split day and asserts a `rest_day_notes` row FK-references it; the full-chain test
+  extends to v25.
+Verified on the `SoloLeveling_Pixel6` emulator (real v24->v25 migration - the device already had
+v24 test data, upgraded clean, `user_version 25`, `rest_day_notes` present with the right columns,
+no crash): all 25 `connectedDebugAndroidTest` cases pass (`run finished: 25 tests, 0 failed`).
+Manual pass: created an "Active Recovery" rest workout via the "Rest day (no exercises)" chip,
+confirmed it renders as a collapsible header (chevron + checkbox + red dot + name + "REST" tag +
+"+"), collapsed by default; tapped "+" and confirmed it opens a plain "Add to Active Recovery"
+text box (not the exercise dialog), added "Foam roll 10 min" and confirmed the note row renders
+when expanded and persisted to `rest_day_notes`; ticked the header checkbox and confirmed a
+`rest_day_logs` row for today plus the Calendar tab's legend listing "Active Recovery" like any
+workout; confirmed edit mode shows the subtle pencil/trash on the header and a subtle trash on the
+note row; confirmed the Routine tab highlights today (Wednesday) with a blue border + blue label
+and no "Today" text. A known cosmetic limitation: in edit mode a longer rest-day name (e.g. "Active
+Recovery") ellipsizes in the header once chevron+checkbox+REST tag+"+"+pencil+trash are all present
+- acceptable for now (edit-mode only, short names are the norm), flagged here in case it needs a
+follow-up. A final `adb logcat *:E` sweep showed no app crashes (only the usual benign
+`FrameTracker` IME-animation timeout). Not yet installed to the user's real Pixel 7 this pass - it
+was disconnected during testing; a real-device install with the v24->v25 migration is still
+outstanding.
+
 ## Locked-in decisions
 
 - Package/applicationId: `com.nightpixel.sololeveling`

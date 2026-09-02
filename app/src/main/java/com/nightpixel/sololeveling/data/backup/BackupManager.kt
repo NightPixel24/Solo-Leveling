@@ -50,7 +50,8 @@ class BackupManager(private val database: AppDatabase) {
             routineItems = database.routineDao().getAllOnce(),
             bodyStatEntries = database.healthDao().getAllOnce(),
             scheduledWorkouts = database.scheduledWorkoutDao().getAllOnce(),
-            restDayLogs = database.restDayLogDao().getAllOnce()
+            restDayLogs = database.restDayLogDao().getAllOnce(),
+            restDayNotes = database.restDayNoteDao().getAllOnce()
         )
         val json = backupJson.encodeToString(BackupData.serializer(), backup)
         context.contentResolver.openOutputStream(uri)?.use { out ->
@@ -95,11 +96,12 @@ class BackupManager(private val database: AppDatabase) {
             // Split days first - exercises FK-reference them, so they must already exist before
             // gymDao's own replaceAll inserts exercises pointing at their ids.
             database.splitDayDao().replaceAll(backup.splitDays)
-            // scheduled_workouts and rest_day_logs both FK-reference split_days, so they go after
-            // splitDayDao's replaceAll. (scheduled_workouts was also previously missing from
-            // restore entirely - a latent import data-loss gap fixed here.)
+            // scheduled_workouts, rest_day_logs and rest_day_notes all FK-reference split_days, so
+            // they go after splitDayDao's replaceAll. (scheduled_workouts was also previously
+            // missing from restore entirely - a latent import data-loss gap fixed here.)
             database.scheduledWorkoutDao().replaceAll(backup.scheduledWorkouts)
             database.restDayLogDao().replaceAll(backup.restDayLogs)
+            database.restDayNoteDao().replaceAll(backup.restDayNotes)
             database.gymDao().replaceAll(backup.exercises, backup.gymSessions)
             database.calendarDao().replaceAll(backup.calendarEvents)
             database.moodDao().replaceAll(backup.moodEntries)

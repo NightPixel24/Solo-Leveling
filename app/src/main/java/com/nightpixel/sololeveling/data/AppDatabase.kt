@@ -18,6 +18,7 @@ import com.nightpixel.sololeveling.data.dao.MoodDao
 import com.nightpixel.sololeveling.data.dao.PlayerProfileDao
 import com.nightpixel.sololeveling.data.dao.PunishmentDao
 import com.nightpixel.sololeveling.data.dao.RestDayLogDao
+import com.nightpixel.sololeveling.data.dao.RestDayNoteDao
 import com.nightpixel.sololeveling.data.dao.RewardDao
 import com.nightpixel.sololeveling.data.dao.RoutineDao
 import com.nightpixel.sololeveling.data.dao.ScheduledWorkoutDao
@@ -40,6 +41,7 @@ import com.nightpixel.sololeveling.data.entity.PlayerProfile
 import com.nightpixel.sololeveling.data.entity.PunishmentAssignment
 import com.nightpixel.sololeveling.data.entity.PunishmentPoolItem
 import com.nightpixel.sololeveling.data.entity.RestDayLog
+import com.nightpixel.sololeveling.data.entity.RestDayNote
 import com.nightpixel.sololeveling.data.entity.RewardInventoryItem
 import com.nightpixel.sololeveling.data.entity.RewardPoolItem
 import com.nightpixel.sololeveling.data.entity.RoutineItem
@@ -67,9 +69,9 @@ import com.nightpixel.sololeveling.data.entity.XpLog
         PunishmentPoolItem::class, PunishmentAssignment::class,
         RewardPoolItem::class, RewardInventoryItem::class,
         PlayerProfile::class, SplitDay::class, RoutineItem::class, BodyStatEntry::class,
-        ScheduledWorkout::class, RestDayLog::class
+        ScheduledWorkout::class, RestDayLog::class, RestDayNote::class
     ],
-    version = 24,
+    version = 25,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -93,9 +95,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun healthDao(): HealthDao
     abstract fun scheduledWorkoutDao(): ScheduledWorkoutDao
     abstract fun restDayLogDao(): RestDayLogDao
+    abstract fun restDayNoteDao(): RestDayNoteDao
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 24
+        const val CURRENT_SCHEMA_VERSION = 25
         private const val DB_NAME = "solo_leveling.db"
 
         /** Fresh installs get a single protected "Daily" list (user feedback, 2026-08-26: "make
@@ -775,6 +778,32 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** A rest-day workout gets its own free-text notes (user feedback, 2026-09-02: a rest day
+         * "should still have a drop down header similar to the other workouts... when adding things
+         * under it dont show the exercise modal show a text box so i can type stuff in") - a plain
+         * new `rest_day_notes` table, FK+cascade to `split_days`, its index mirroring the `@Index`
+         * on [RestDayNote] so runMigrationsAndValidate's schema check passes. Purely additive, no
+         * existing data to migrate. */
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS rest_day_notes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        splitDayId INTEGER NOT NULL,
+                        text TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(splitDayId) REFERENCES split_days(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_rest_day_notes_splitDayId " +
+                        "ON rest_day_notes(splitDayId)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -790,7 +819,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                         MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
                         MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
-                        MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24
+                        MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25
                     )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
